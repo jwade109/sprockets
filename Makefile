@@ -2,10 +2,10 @@
 all: client server
 
 client:
-	gcc client.c -o client
+	gcc client.c -o client -g
 
 server:
-	gcc server.c -o server
+	gcc server.c -o server -g
 
 sync:
 	./sync.sh

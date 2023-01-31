@@ -1,9 +1,4 @@
-#include <sys/socket.h>
 #include <stdio.h>
-#include <errno.h>
-#include <string.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <unistd.h>
 
 #include "common.c"
@@ -55,24 +50,16 @@ int main(int argc, char **argv)
 
     while (1)
     {
-        char *msg;
-        int len = read_message(fsock, &msg);
-        if (!msg)
+        packet_t packet;
+        if (read_packet(fsock, &packet))
         {
             return 1;
         }
 
-        char ack_buffer[1024] = {0};
-        sprintf(ack_buffer, "ACK %d", len);
-        if (send_message(fsock, ack_buffer, strlen(ack_buffer)))
+        packet_t resp = get_stamped_packet("ACK");
+        if (send_packet(fsock, &resp))
         {
             return 1;
-        }
-
-        if (is_quit(msg))
-        {
-            printf("Received exit command.\n");
-            break;
         }
     }
 

@@ -1,6 +1,13 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <sys/time.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <errno.h>
+
+#define PACKET_DATA_LEN 128
 
 #pragma pack(push, 1)
 typedef struct packet_t
@@ -10,7 +17,7 @@ typedef struct packet_t
     uint64_t datalen;
     uint16_t datatype;
     uint8_t checksum;
-    uint8_t data[128];
+    uint8_t data[PACKET_DATA_LEN];
 } packet_t;
 #pragma pack(pop)
 
@@ -22,11 +29,10 @@ uint8_t compute_checksum(uint8_t *array, size_t len)
         sum ^= array[i];
     }
     sum = ~sum;
-    printf("checksum: %d\n", (int) sum);
     return sum;
 }
 
-packet_t get_stamped_packet()
+packet_t get_stamped_packet(char *msg)
 {
     struct timeval time;
     gettimeofday(&time, NULL);
@@ -36,28 +42,40 @@ packet_t get_stamped_packet()
     packet.datatype = 0;
     packet.datalen = 0;
     memset(packet.data, 0, sizeof(packet.data));
+    if (msg)
+    {
+        memcpy(packet.data, msg, strlen(msg));
+    }
+    packet.checksum = compute_checksum((uint8_t *) &packet, sizeof(packet));
     return packet;
 };
 
 void print_binary_str_sequence(char *seq, int len)
 {
-    printf("  ");
     for (int i = 0; i < len; ++i)
     {
         char c = seq[i];
         printf("%c", (c > 31 && c < 127) ? seq[i] : '.');
     }
-    printf("\n  ");
-    for (int i = 0; i < len; ++i)
-    {
-        printf("%02x ", (uint8_t) seq[i]);
-    }
     printf("\n");
+    // for (int i = 0; i < len; ++i)
+    // {
+    //     printf("%02x ", (uint8_t) seq[i]);
+    // }
+    // printf("\n");
 }
 
-int is_quit(char *msg)
+void print_packet(packet_t packet)
 {
-    return strcmp(msg, "quit") == 0;
+    printf("PACKET %lu.%06lu DATA %s", packet.secs, packet.usecs, packet.data);
+}
+
+int get_input_stdin(const char *prompt, char *buffer, size_t bufsize)
+{
+    printf("%s", prompt);
+    int len = getline(&buffer, &bufsize, stdin);
+    buffer[len-1] = 0; // remove newline
+    return len;
 }
 
 int send_message(int fsock, char *msg, int len)
@@ -68,8 +86,8 @@ int send_message(int fsock, char *msg, int len)
         return 1;
     }
 
-    printf("Sending %d characters:\n", len);
-    print_binary_str_sequence(msg, len);
+    // printf("Sending %d characters:\n", len);
+    // print_binary_str_sequence(msg, len);
 
     int sent = send(fsock, msg, len, 0);
     if (sent < 0 || len != sent)
@@ -80,43 +98,55 @@ int send_message(int fsock, char *msg, int len)
     return 0;
 }
 
-int read_message(int fsock, char **msg)
+int read_message(int fsock, char *buffer, int len)
 {
-    size_t bufsize = 1024;
-    *msg = calloc(1024, 1);
-
-    printf("Reading...\n");
-    int numread = read(fsock, *msg, bufsize);
+    int numread = read(fsock, buffer, len);
     if (numread < 0)
     {
         printf("Failed to read: %s\n", strerror(errno));
         return -1;
     }
 
-    printf("Read %d characters:\n", numread);
     if (numread == 0)
     {
         printf("Empty message.\n");
         return 0;
     }
-    print_binary_str_sequence(*msg, numread);
     return numread;
 }
 
-char* get_input_stdin(const char *prompt)
+int send_packet(int fsock, const packet_t *packet)
 {
-    size_t bufsize = 1024;
-    char *msg = calloc(1024, sizeof(char));
-    if (!msg)
+    int ret = send_message(fsock, (char *) packet, sizeof(packet_t));
+    if (ret)
     {
-        return msg;
+        return ret;
     }
-    int len = 0;
-    while (len < 2)
+
+    printf("[SENT] ");
+    print_packet(*packet);
+    printf("\n");
+
+    return ret;
+}
+
+int read_packet(int fsock, packet_t *packet)
+{
+    int numread = read_message(fsock, (char *) packet, sizeof(packet_t));
+    if (numread != sizeof(packet_t))
     {
-        printf("%s", prompt);
-        len = getline(&msg, &bufsize, stdin);
+        return 1; // failure
     }
-    msg[len-1] = 0; // remove newline
-    return msg;
+
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    uint64_t nusec = now.tv_sec * 1E6 + now.tv_usec;
+    uint64_t pusec = packet->secs * 1E6 + packet->usecs;
+    int64_t dt = nusec - pusec;
+
+    printf("[RECV] ");
+    print_packet(*packet);
+    printf(" [%ld us]\n", dt);
+
+    return 0; // success
 }

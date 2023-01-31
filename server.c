@@ -1,9 +1,4 @@
-#include <sys/socket.h>
 #include <stdio.h>
-#include <errno.h>
-#include <string.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <unistd.h>
 
 #include "common.c"
@@ -54,47 +49,39 @@ int main()
 
     printf("Connected: %d\n", client_fd);
 
+    packet_t hello_packet = get_stamped_packet("hello!");
+    if (send_packet(client_fd, &hello_packet))
+    {
+        return 1;
+    }
+
+    packet_t hello_ack;
+    if (read_packet(client_fd, &hello_ack))
+    {
+        return 1;
+    }
+
+    char buffer[1024];
     while (1)
     {
-        // get_input_stdin(">> ");
-        // packet_t packet = get_stamped_packet();
-        // char *msg = (char *) &packet;
-        // int len = sizeof(packet_t);
-
-        char *msg = get_input_stdin(">> ");
-        if (!msg)
+        int len = get_input_stdin(">> ", buffer, sizeof(buffer));
+        if (len < 0)
         {
             printf("Failed to get stdin: %s\n", strerror(errno));
             return 1;
         }
-        int len = strlen(msg);
 
-        packet_t packet = get_stamped_packet();
-        memcpy(packet.data, msg, len);
-        packet.checksum = compute_checksum((uint8_t *) &packet, sizeof(packet));
-
-        msg = (char *) &packet;
-        len = sizeof(packet);
-
-        if (send_message(client_fd, msg, len))
+        packet_t packet = get_stamped_packet(buffer);
+        if (send_packet(client_fd, &packet))
         {
             return 1;
         }
 
-        char *resp;
-        read_message(client_fd, &resp);
-        if (!resp)
+        packet_t resp;
+        if (read_packet(client_fd, &resp))
         {
             return 1;
         }
-
-        if (is_quit(msg))
-        {
-            printf("Received exit command.\n");
-            break;
-        }
-
-        // free(msg);
     }
 
     close(fsock);
