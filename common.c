@@ -114,6 +114,10 @@ int send_message(int fsock, char *msg, int len)
         return 1;
     }
 
+    uint64_t usecs;
+    uint64_t datalen;
+    uint16_t datatype;
+    uint8_t checksum;
     // printf("Sending %d characters:\n", len);
     // print_binary_str_sequence(msg, len);
 
@@ -176,16 +180,23 @@ int connect_to_server(int fsock, struct sockaddr_in addr)
 {
     int retcode = -1;
     int retries = 0;
-    const int max_retries = 5;
+    const int max_retries = 10000;
     while (retcode < 0 && retries < max_retries)
     {
-        printf("Attempting connection...\n");
+        if (!retries)
+        {
+            printf("Attempting connection...\n");
+        }
         retcode = connect(fsock, (struct sockaddr*) &addr, sizeof(addr));
         if (retcode < 0)
         {
-            printf("(%d/%d) Failed to connect: %s\n",
-                retries + 1, max_retries, strerror(errno));
-            usleep(1000000);
+            if (!retries)
+            {
+                printf("Failed to connect: %s. "
+                    "Will wait and retry for a little bit.\n",
+                    strerror(errno));
+            }
+            usleep(100000);
         }
         ++retries;
     }
@@ -252,20 +263,11 @@ int two_way_loop(int fsock, input_buffer_t *buffer)
 {
     if (can_recv(fsock))
     {
-        packet_t recv;
-        if (read_packet(fsock, &recv))
+        packet_t packet;
+        if (read_packet(fsock, &packet))
         {
-            printf("Failed to receive.\n");
             return 1;
         }
-        // printf("Reading...\n");
-        // int len = buffered_read_msg(fsock, buffer);
-        // printf("%d\n", len);
-        // if (len == 0)
-        // {
-        //     printf("Disconnect.\n");
-        //     return 1;
-        // }
     }
 
     if (1.0 * rand() / RAND_MAX < 0.01)

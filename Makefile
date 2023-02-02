@@ -7,4 +7,7 @@ node:
 clean:
 	rm node
 
-.PHONY: node
+sync:
+	./sync.sh pi@slingshot /home/pi/sprockets
+
+.PHONY: node sync
