@@ -14,6 +14,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    signal(SIGPIPE, SIG_IGN); // suppress SIGPIPE raised by socket write errors
+
     const char *ip_addr_str = argv[1];
     const int port = atoi(argv[2]);
 
@@ -24,47 +26,25 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    int option = 1;
-    setsockopt(fsock, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
+    set_socket_reusable(fsock);
 
     printf("Connecting to server at %s:%d\n", ip_addr_str, port);
 
-    struct sockaddr_in addr;
+    struct sockaddr_in addr = get_sockaddr(ip_addr_str, port);
 
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_aton(ip_addr_str, (struct in_addr *) &addr.sin_addr.s_addr);
-
-    int server_fd = -1;
-    while (server_fd < 0)
+    if (connect_to_server(fsock, addr) < 0)
     {
-        server_fd = connect(fsock, (struct sockaddr*) &addr, sizeof(addr));
-        if (server_fd < 0)
-        {
-            printf("Failed to connect: %s\n", strerror(errno));
-            usleep(1000000);
-        }
+        return 1;
     }
 
-    printf("Connected to server: %d\n", server_fd);
+    printf("Connected to server.\n");
 
-    while (1)
-    {
-        packet_t packet;
-        if (read_packet(fsock, &packet))
-        {
-            return 1;
-        }
+    input_buffer_t buffer;
+    reset_buffer(&buffer);
 
-        packet_t resp = get_stamped_packet("ACK");
-        if (send_packet(fsock, &resp))
-        {
-            return 1;
-        }
-    }
+    while (two_way_loop(fsock, &buffer) == 0);
 
     close(fsock);
-
     printf("Done.\n");
 
     return 0;
