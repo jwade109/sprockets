@@ -1,16 +1,10 @@
 
-all: client server
+all: node
 
-client:
-	gcc client.c -o client -g
-
-server:
-	gcc server.c -o server -g
-
-sync:
-	./sync.sh
+node:
+	gcc node.c -o node -g
 
 clean:
-	rm client server
+	rm node
 
-.PHONY: client server sync
+.PHONY: node

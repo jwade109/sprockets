@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "common.c"
 
@@ -7,10 +8,12 @@ int main(int argc, char **argv)
 {
     if (argc < 4)
     {
-        printf("Requires IP address, port number, and network role.\n");
+        printf("Requires IP address and port number.\n");
         printf("usage: %s [address] [port] [is_server]\n", argv[0]);
         return 1;
     }
+
+    srand(time(0));
 
     signal(SIGPIPE, SIG_IGN); // suppress SIGPIPE raised by socket write errors
 

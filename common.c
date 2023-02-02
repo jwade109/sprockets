@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <sys/select.h>
 #include <signal.h>
+// #include <random.h>
 
 #define PACKET_DATA_LEN 128
 
@@ -40,11 +41,12 @@ packet_t get_stamped_packet(char *msg)
     struct timeval time;
     gettimeofday(&time, NULL);
     packet_t packet;
+    memset(&packet, 0, sizeof(packet_t));
     packet.secs = time.tv_sec;
     packet.usecs = time.tv_usec;
     packet.datatype = 0;
     packet.datalen = 0;
-    memset(packet.data, 0, sizeof(packet.data));
+    // memset(packet.data, 0, sizeof(packet.data));
     if (msg)
     {
         memcpy(packet.data, msg, strlen(msg));
@@ -142,7 +144,7 @@ int send_packet(int fsock, const packet_t *packet)
         return ret;
     }
 
-    printf("[SENT] ");
+    printf("[|-->] ");
     print_packet(*packet);
     printf("\n");
 
@@ -163,7 +165,7 @@ int read_packet(int fsock, packet_t *packet)
     uint64_t pusec = packet->secs * 1E6 + packet->usecs;
     int64_t dt = nusec - pusec;
 
-    printf("[RECV] ");
+    printf("[|<--] ");
     print_packet(*packet);
     printf(" [%ld us]\n", dt);
 
@@ -266,16 +268,21 @@ int two_way_loop(int fsock, input_buffer_t *buffer)
         // }
     }
 
-    char outbuf[1024];
-    const char *msg = "hello world!";
-    strcpy(outbuf, msg);
-
-    packet_t packet = get_stamped_packet(outbuf);
-    if (send_packet(fsock, &packet))
+    if (1.0 * rand() / RAND_MAX < 0.01)
     {
-        printf("Failed to send.\n");
-        return 1;
+        char outbuf[1024];
+        const char *msg = "hello world!";
+        strcpy(outbuf, msg);
+
+        packet_t packet = get_stamped_packet(outbuf);
+        if (send_packet(fsock, &packet))
+        {
+            printf("Failed to send.\n");
+            return 1;
+        }
     }
 
-    usleep(250000);
+    usleep(1000);
+
+    return 0;
 }
