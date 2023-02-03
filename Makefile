@@ -1,5 +1,5 @@
 
-all: node
+all: node sync
 
 node:
 	gcc node.c -o node -g

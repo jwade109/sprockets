@@ -9,21 +9,32 @@
 #include <fcntl.h>
 #include <sys/select.h>
 #include <signal.h>
-// #include <random.h>
+#include <assert.h>
+#include <stddef.h>
 
 #define PACKET_DATA_LEN 128
 
 #pragma pack(push, 1)
 typedef struct packet_t
 {
-    uint64_t secs;
-    uint64_t usecs;
-    uint64_t datalen;
+    uint32_t sno;
+    uint32_t secs;
+    uint32_t usecs;
+    uint32_t datalen;
     uint16_t datatype;
     uint8_t checksum;
     uint8_t data[PACKET_DATA_LEN];
 } packet_t;
 #pragma pack(pop)
+
+static_assert(sizeof(packet_t) == 128 + 19, "Packet size is not as expected");
+static_assert(offsetof(packet_t, sno) == 0, "packet_t::secs offset");
+static_assert(offsetof(packet_t, secs) == 4, "packet_t::secs offset");
+static_assert(offsetof(packet_t, usecs) == 8, "packet_t::usecs offset");
+static_assert(offsetof(packet_t, datalen) == 12, "packet_t::datalen offset");
+static_assert(offsetof(packet_t, datatype) == 16, "packet_t::datatype offset");
+static_assert(offsetof(packet_t, checksum) == 18, "packet_t::checksum offset");
+static_assert(offsetof(packet_t, data) == 19, "packet_t::data offset");
 
 uint8_t compute_checksum(uint8_t *array, size_t len)
 {
@@ -36,12 +47,15 @@ uint8_t compute_checksum(uint8_t *array, size_t len)
     return sum;
 }
 
+uint64_t packet_serial_no = 0;
+
 packet_t get_stamped_packet(char *msg)
 {
     struct timeval time;
     gettimeofday(&time, NULL);
     packet_t packet;
     memset(&packet, 0, sizeof(packet_t));
+    packet.sno = packet_serial_no++;
     packet.secs = time.tv_sec;
     packet.usecs = time.tv_usec;
     packet.datatype = 0;
@@ -57,22 +71,33 @@ packet_t get_stamped_packet(char *msg)
 
 void print_binary_str_sequence(char *seq, int len)
 {
-    for (int i = 0; i < len; ++i)
+    if (!len)
     {
-        char c = seq[i];
-        printf("%c", (c > 31 && c < 127) ? seq[i] : '.');
+        return;
     }
-    printf("\n");
+
     // for (int i = 0; i < len; ++i)
     // {
-    //     printf("%02x ", (uint8_t) seq[i]);
+    //     char c = seq[i];
+    //     printf("%c", (c > 31 && c < 1272) ? seq[i] : '.');
     // }
     // printf("\n");
+    for (int i = 0; i < len; ++i)
+    {
+        printf(" %02x", (uint8_t) seq[i]);
+        if ((i + 1) % 16 == 0)
+        {
+            printf("\n");
+        }
+    }
+    printf("\n");
 }
 
 void print_packet(packet_t packet)
 {
-    printf("PACKET %lu.%06lu DATA %s", packet.secs, packet.usecs, packet.data);
+    // printf("PACKET %lu.%06lu DATA %s", packet.secs, packet.usecs, packet.data);
+    printf("PACKET[%u] %u %u",
+        packet.sno, packet.secs, packet.usecs); //, packet.data);
 }
 
 void set_socket_reusable(int fsock)
@@ -148,7 +173,7 @@ int send_packet(int fsock, const packet_t *packet)
         return ret;
     }
 
-    printf("[|-->] ");
+    printf("[SEND] ");
     print_packet(*packet);
     printf("\n");
 
@@ -169,15 +194,17 @@ int read_packet(int fsock, packet_t *packet)
     uint64_t pusec = packet->secs * 1E6 + packet->usecs;
     int64_t dt = nusec - pusec;
 
-    printf("[|<--] ");
+    printf("[RECV] ");
     print_packet(*packet);
     printf(" [%ld us]\n", dt);
 
     return 0; // success
 }
 
-int connect_to_server(int fsock, struct sockaddr_in addr)
+int connect_to_server(int fsock, const char *ip_addr_str, int port)
 {
+    struct sockaddr_in addr = get_sockaddr(ip_addr_str, port);
+
     int retcode = -1;
     int retries = 0;
     const int max_retries = 10000;
@@ -249,18 +276,33 @@ void reset_buffer(input_buffer_t *buffer)
 int buffered_read_msg(int fsock, input_buffer_t *inbuf)
 {
     int remaining = INPUT_BUFFER_SIZE - inbuf->wptr;
-    printf("Remaining: %d\n", remaining);
+    // printf("Remaining: %d\n", remaining);
     int numread = read_message(fsock, inbuf->data + inbuf->wptr, remaining);
     if (numread > 0)
     {
         // ADD THIS BACK IN
-        // inbuf->wptr += numread;
+        inbuf->wptr += numread;
     }
     return numread;
 }
 
-int two_way_loop(int fsock, input_buffer_t *buffer)
+// uint64_t byte_unpack_u64(const char *bptr)
+// {
+//     uint64_t ret = 0;
+
+//     for (int i = 0; i < 8; ++i)
+//     {
+//         printf("%d\n", (int) bptr[i]);
+//         ret |= (bptr[i] << (i * 8));
+//     }
+
+//     return ret;
+// }
+
+int two_way_loop(int fsock, input_buffer_t *buffer, int is_server)
 {
+    reset_buffer(buffer);
+
     if (can_recv(fsock))
     {
         packet_t packet;
@@ -270,7 +312,7 @@ int two_way_loop(int fsock, input_buffer_t *buffer)
         }
     }
 
-    if (1.0 * rand() / RAND_MAX < 0.01)
+    if (1.0 * rand() / RAND_MAX < 0.001)
     {
         char outbuf[1024];
         const char *msg = "hello world!";
