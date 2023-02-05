@@ -36,6 +36,28 @@ int bind_to_server(int fsock, const char *ip_addr_str, int port)
     return client_fd;
 }
 
+uint32_t next_foreign_serial_no = 0;
+
+void user_got_a_packet(const packet_t *p)
+{
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    uint64_t nusec = now.tv_sec * 1E6 + now.tv_usec;
+    uint64_t pusec = p->secs * 1E6 + p->usecs;
+    int64_t dt = nusec - pusec;
+
+    printf("[RECV] ");
+    print_packet(*p);
+    printf(" [%ld us]\n", dt);
+
+    // if (p->sno != next_foreign_serial_no)
+    // {
+    //     printf("Serial number mismatch; expected %u, got %u.\n",
+    //         next_foreign_serial_no, p->sno);
+    // }
+    // next_foreign_serial_no = p->sno + 1;
+}
+
 int main(int argc, char **argv)
 {
     for (int i = 1; i < argc; ++i)
@@ -90,10 +112,12 @@ int main(int argc, char **argv)
         is_server = 0;
     }
 
-    input_buffer_t buffer;
-    reset_buffer(&buffer);
+    node_conn_t conn;
+    reset_conn(&conn);
+    conn.socket_fd = conn_fd;
+    conn.on_packet = user_got_a_packet;
 
-    while (two_way_loop(conn_fd, &buffer, is_server) == 0);
+    while (spin(&conn) == 0);
 
     close(conn_fd);
     printf("Done.\n");

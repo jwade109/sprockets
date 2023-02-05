@@ -29,7 +29,8 @@ typedef struct packet_t
 } packet_t;
 #pragma pack(pop)
 
-static_assert(sizeof(packet_t) == PACKET_DATA_LEN + 21, "Packet size is not as expected");
+static_assert(sizeof(packet_t) == 149, "Packet size is not as expected");
+static_assert(sizeof(packet_t) == 21 + PACKET_DATA_LEN, "Packet size is not as expected");
 static_assert(offsetof(packet_t, preamble) == 0, "packet_t::secs offset");
 static_assert(offsetof(packet_t, sno) == 2, "packet_t::secs offset");
 static_assert(offsetof(packet_t, secs) == 6, "packet_t::secs offset");
@@ -77,13 +78,6 @@ void print_hexdump(char *seq, int len)
     {
         return;
     }
-
-    // for (int i = 0; i < len; ++i)
-    // {
-    //     char c = seq[i];
-    //     printf("%c", (c > 31 && c < 1272) ? seq[i] : '.');
-    // }
-    // printf("\n");
     for (int i = 0; i < len; ++i)
     {
         printf(" %02x", (uint8_t) seq[i]);
@@ -97,7 +91,7 @@ void print_hexdump(char *seq, int len)
 
 void print_packet(packet_t packet)
 {
-    printf("PACKET[%u] %u.%06u %s 0x%02x",
+    printf("PACKET[%u] %u.%06u %s 0x%02X",
         packet.sno, packet.secs, packet.usecs, packet.data, packet.checksum);
 }
 
@@ -260,32 +254,95 @@ int can_recv(int fsock)
 //     return select(fsock + 1, NULL, &write_set, NULL, &select_timeout) > 0;
 // }
 
-#define INPUT_BUFFER_SIZE 10240
+#define INPUT_BUFFER_SIZE 6000
 
-typedef struct input_buffer_t
+typedef struct
 {
     char data[INPUT_BUFFER_SIZE];
     int wptr;
+    int rptr;
+    int capacity;
+    int size;
 }
-input_buffer_t;
+ring_buffer_t;
 
-void reset_buffer(input_buffer_t *buffer)
+void reset_buffer(ring_buffer_t *buffer)
 {
     buffer->wptr = 0;
+    buffer->rptr = 0;
+    buffer->capacity = INPUT_BUFFER_SIZE;
+    buffer->size = 0;
 }
 
-int buffered_read_msg(int fsock, input_buffer_t *inbuf)
+void print_ring_buffer(ring_buffer_t *b)
 {
-    int remaining = INPUT_BUFFER_SIZE - inbuf->wptr;
-    // printf("Remaining: %d\n", remaining);
-    int numread = read_message(fsock, inbuf->data + inbuf->wptr, remaining);
-    if (numread > 0)
+    printf("[rptr=%d wptr=%d size=%d cap=%d]\n",
+        b->rptr, b->wptr, b->size, b->capacity);
+}
+
+void assert_invariants(ring_buffer_t *buffer)
+{
+    if (buffer->size == 0 || buffer->size == buffer->capacity)
     {
-        // ADD THIS BACK IN
-        inbuf->wptr += numread;
+        assert(buffer->rptr == buffer->wptr);
+        return;
+    }
+    assert(buffer->rptr != buffer->wptr);
+    int count = 0;
+    for (int i = buffer->rptr; i != buffer->wptr; ++i, i %= buffer->capacity)
+    {
+        ++count;
+    }
+    assert(count == buffer->size);
+}
+
+void ring_put(ring_buffer_t *buffer, char c)
+{
+    buffer->data[buffer->wptr++] = c;
+    buffer->wptr %= buffer->capacity;
+    ++buffer->size;
+    if (buffer->size >= buffer->capacity)
+    {
+        buffer->size = buffer->capacity;
+        buffer->rptr = buffer->wptr;
+    }
+    assert_invariants(buffer);
+}
+
+char ring_get(ring_buffer_t *buffer)
+{
+    if (!buffer->size)
+    {
+        return 0;
+    }
+    char c = buffer->data[buffer->rptr++];
+    buffer->rptr %= buffer->capacity;
+    --buffer->size;
+    assert_invariants(buffer);
+    return c;
+}
+
+int buffered_read_msg(int fsock, ring_buffer_t *inbuf)
+{
+    char buffer[INPUT_BUFFER_SIZE];
+
+    int numread = read_message(fsock, buffer, INPUT_BUFFER_SIZE);
+    for (int i = 0; i < numread; ++i)
+    {
+        ring_put(inbuf, buffer[i]);
     }
     return numread;
 }
+
+typedef void(*on_packet_cb_t)(const packet_t *);
+
+typedef struct
+{
+    int socket_fd;
+    ring_buffer_t read_buffer;
+    on_packet_cb_t on_packet;
+}
+node_conn_t;
 
 // returns 0 on not enough data
 // returns < 0 for various error codes
@@ -303,24 +360,30 @@ int cast_buffer_to_packet(packet_t *p, const char *buffer, int len)
 
     if (p->preamble != PACKET_PREAMBLE)
     {
-        printf("Bad preamble; expected 0x%x, got 0x%x.\n",
+        printf("Bad preamble; expected 0x%X, got 0x%X.\n",
             PACKET_PREAMBLE, p->preamble);
         return -1;
     }
     if (computed_checksum)
     {
-        printf("Bad checksum; expected 0x00, got 0x%02x.\n", computed_checksum);
+        printf("Bad checksum; expected 0x00, got 0x%02X.\n", computed_checksum);
         return -2;
     }
 
     return 1;
 }
 
-uint32_t next_foreign_serial_no = 0;
+uint64_t seqnum = 0;
 
-int two_way_loop(int fsock, input_buffer_t *buffer, int is_server)
+int two_way_loop(int fsock, ring_buffer_t *buffer, on_packet_cb_t on_rcv_cb)
 {
-    reset_buffer(buffer);
+    if (!on_rcv_cb)
+    {
+        printf("Bad callback.\n");
+        return 1;
+    }
+
+    // reset_buffer(buffer);
 
     if (can_recv(fsock))
     {
@@ -330,29 +393,38 @@ int two_way_loop(int fsock, input_buffer_t *buffer, int is_server)
             return 1;
         }
 
-        packet_t packet;
-        if (cast_buffer_to_packet(&packet, buffer->data, buffer->wptr) == 1)
-        {
-            printf("[RECV] ");
-            print_packet(packet);
-            printf("\n");
+        // print_ring_buffer(buffer);
 
-            if (packet.sno != next_foreign_serial_no)
+        while (buffer->size >= sizeof(packet_t))
+        {
+            char contig_buf[sizeof(packet_t)];
+            for (int i = 0; i < sizeof(packet_t); ++i)
             {
-                printf("Serial number mismatch; expected %u, got %u.\n",
-                    next_foreign_serial_no, packet.sno);
+                contig_buf[i] = ring_get(buffer);
             }
-            next_foreign_serial_no = packet.sno + 1;
+            packet_t packet;
+            if (cast_buffer_to_packet(&packet, contig_buf, sizeof(packet_t)) == 1)
+            {
+                on_rcv_cb(&packet);
+            }
         }
+
     }
 
-    if (1.0 * rand() / RAND_MAX < 0.01)
+    if (seqnum++ % 25 == 0)
     {
-        char outbuf[1024];
-        const char *msg = "hello world!";
-        strcpy(outbuf, msg);
+        time_t rawtime;
+        struct tm *info;
+        const int len = 200;
+        char buffer[len];
 
-        packet_t packet = get_stamped_packet(outbuf);
+        time( &rawtime );
+
+        info = localtime( &rawtime );
+
+        strftime(buffer, len, "%A, %B %d %FT%TZ", info);
+
+        packet_t packet = get_stamped_packet(buffer);
         if (send_packet(fsock, &packet))
         {
             printf("Failed to send.\n");
@@ -363,4 +435,15 @@ int two_way_loop(int fsock, input_buffer_t *buffer, int is_server)
     usleep(1000);
 
     return 0;
+}
+
+int spin(node_conn_t *conn)
+{
+    return two_way_loop(conn->socket_fd, &conn->read_buffer, conn->on_packet);
+}
+
+void reset_conn(node_conn_t *conn)
+{
+    reset_buffer(&conn->read_buffer);
+    conn->on_packet = 0;
 }
