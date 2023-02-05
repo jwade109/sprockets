@@ -38,18 +38,20 @@ int bind_to_server(int fsock, const char *ip_addr_str, int port)
 
 int main(int argc, char **argv)
 {
-    if (argc < 2)
+    for (int i = 1; i < argc; ++i)
     {
-        printf("Requires IP address and port number.\n");
-        printf("usage: %s [address] [port=4300]\n", argv[0]);
-        return 1;
+        if (strcmp(argv[i], "-h") == 0)
+        {
+            printf("Requires IP address and port number.\n");
+            printf("usage: %s [address=0.0.0.0] [port=4300]\n", argv[0]);
+            return 0;
+        }
     }
 
     srand(time(0));
-
     signal(SIGPIPE, SIG_IGN); // suppress SIGPIPE raised by socket write errors
 
-    const char *ip_addr_str = argv[1];
+    const char *ip_addr_str = argc > 1 ? argv[1] : "0.0.0.0";
     const int port = argc > 2 ? atoi(argv[2]) : 4300;
     const int addr_is_local = strcmp("0.0.0.0", ip_addr_str) == 0;
 

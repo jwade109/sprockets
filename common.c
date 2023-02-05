@@ -13,10 +13,12 @@
 #include <stddef.h>
 
 #define PACKET_DATA_LEN 128
+#define PACKET_PREAMBLE 0x20F7
 
 #pragma pack(push, 1)
 typedef struct packet_t
 {
+    uint16_t preamble;
     uint32_t sno;
     uint32_t secs;
     uint32_t usecs;
@@ -27,23 +29,23 @@ typedef struct packet_t
 } packet_t;
 #pragma pack(pop)
 
-static_assert(sizeof(packet_t) == 128 + 19, "Packet size is not as expected");
-static_assert(offsetof(packet_t, sno) == 0, "packet_t::secs offset");
-static_assert(offsetof(packet_t, secs) == 4, "packet_t::secs offset");
-static_assert(offsetof(packet_t, usecs) == 8, "packet_t::usecs offset");
-static_assert(offsetof(packet_t, datalen) == 12, "packet_t::datalen offset");
-static_assert(offsetof(packet_t, datatype) == 16, "packet_t::datatype offset");
-static_assert(offsetof(packet_t, checksum) == 18, "packet_t::checksum offset");
-static_assert(offsetof(packet_t, data) == 19, "packet_t::data offset");
+static_assert(sizeof(packet_t) == PACKET_DATA_LEN + 21, "Packet size is not as expected");
+static_assert(offsetof(packet_t, preamble) == 0, "packet_t::secs offset");
+static_assert(offsetof(packet_t, sno) == 2, "packet_t::secs offset");
+static_assert(offsetof(packet_t, secs) == 6, "packet_t::secs offset");
+static_assert(offsetof(packet_t, usecs) == 10, "packet_t::usecs offset");
+static_assert(offsetof(packet_t, datalen) == 14, "packet_t::datalen offset");
+static_assert(offsetof(packet_t, datatype) == 18, "packet_t::datatype offset");
+static_assert(offsetof(packet_t, checksum) == 20, "packet_t::checksum offset");
+static_assert(offsetof(packet_t, data) == 21, "packet_t::data offset");
 
-uint8_t compute_checksum(uint8_t *array, size_t len)
+uint8_t array_sum(const char *array, size_t len)
 {
     uint8_t sum = 0;
     for (size_t i = 0; i < len; ++i)
     {
-        sum ^= array[i];
+        sum += (uint8_t) array[i];
     }
-    sum = ~sum;
     return sum;
 }
 
@@ -55,21 +57,21 @@ packet_t get_stamped_packet(char *msg)
     gettimeofday(&time, NULL);
     packet_t packet;
     memset(&packet, 0, sizeof(packet_t));
+    packet.preamble = PACKET_PREAMBLE;
     packet.sno = packet_serial_no++;
     packet.secs = time.tv_sec;
     packet.usecs = time.tv_usec;
     packet.datatype = 0;
     packet.datalen = 0;
-    // memset(packet.data, 0, sizeof(packet.data));
     if (msg)
     {
         memcpy(packet.data, msg, strlen(msg));
     }
-    packet.checksum = compute_checksum((uint8_t *) &packet, sizeof(packet));
+    packet.checksum = 256 - array_sum((uint8_t *) &packet, sizeof(packet));
     return packet;
 };
 
-void print_binary_str_sequence(char *seq, int len)
+void print_hexdump(char *seq, int len)
 {
     if (!len)
     {
@@ -95,9 +97,8 @@ void print_binary_str_sequence(char *seq, int len)
 
 void print_packet(packet_t packet)
 {
-    // printf("PACKET %lu.%06lu DATA %s", packet.secs, packet.usecs, packet.data);
-    printf("PACKET[%u] %u %u",
-        packet.sno, packet.secs, packet.usecs); //, packet.data);
+    printf("PACKET[%u] %u.%06u %s 0x%02x",
+        packet.sno, packet.secs, packet.usecs, packet.data, packet.checksum);
 }
 
 void set_socket_reusable(int fsock)
@@ -144,7 +145,7 @@ int send_message(int fsock, char *msg, int len)
     uint16_t datatype;
     uint8_t checksum;
     // printf("Sending %d characters:\n", len);
-    // print_binary_str_sequence(msg, len);
+    // print_hexdump(msg, len);
 
     int sent = send(fsock, msg, len, 0);
     if (sent < 0 || len != sent)
@@ -286,18 +287,36 @@ int buffered_read_msg(int fsock, input_buffer_t *inbuf)
     return numread;
 }
 
-// uint64_t byte_unpack_u64(const char *bptr)
-// {
-//     uint64_t ret = 0;
+// returns 0 on not enough data
+// returns < 0 for various error codes
+// returns 1 if packet is successfully casted
+int cast_buffer_to_packet(packet_t *p, const char *buffer, int len)
+{
+    if (len < sizeof(packet_t))
+    {
+        return 0;
+    }
 
-//     for (int i = 0; i < 8; ++i)
-//     {
-//         printf("%d\n", (int) bptr[i]);
-//         ret |= (bptr[i] << (i * 8));
-//     }
+    uint8_t computed_checksum = array_sum(buffer, len);
 
-//     return ret;
-// }
+    *p = *((packet_t *) buffer);
+
+    if (p->preamble != PACKET_PREAMBLE)
+    {
+        printf("Bad preamble; expected 0x%x, got 0x%x.\n",
+            PACKET_PREAMBLE, p->preamble);
+        return -1;
+    }
+    if (computed_checksum)
+    {
+        printf("Bad checksum; expected 0x00, got 0x%02x.\n", computed_checksum);
+        return -2;
+    }
+
+    return 1;
+}
+
+uint32_t next_foreign_serial_no = 0;
 
 int two_way_loop(int fsock, input_buffer_t *buffer, int is_server)
 {
@@ -305,14 +324,29 @@ int two_way_loop(int fsock, input_buffer_t *buffer, int is_server)
 
     if (can_recv(fsock))
     {
-        packet_t packet;
-        if (read_packet(fsock, &packet))
+        int len = buffered_read_msg(fsock, buffer);
+        if (!len)
         {
             return 1;
         }
+
+        packet_t packet;
+        if (cast_buffer_to_packet(&packet, buffer->data, buffer->wptr) == 1)
+        {
+            printf("[RECV] ");
+            print_packet(packet);
+            printf("\n");
+
+            if (packet.sno != next_foreign_serial_no)
+            {
+                printf("Serial number mismatch; expected %u, got %u.\n",
+                    next_foreign_serial_no, packet.sno);
+            }
+            next_foreign_serial_no = packet.sno + 1;
+        }
     }
 
-    if (1.0 * rand() / RAND_MAX < 0.001)
+    if (1.0 * rand() / RAND_MAX < 0.01)
     {
         char outbuf[1024];
         const char *msg = "hello world!";
