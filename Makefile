@@ -2,7 +2,10 @@
 all: node
 
 node:
-	gcc node.c -o node -g
+	gcc -std=gnu11 node.c -o node -g -Wall -Wextra -Wpedantic \
+        -Wfatal-errors -Wdouble-promotion -Wfloat-conversion \
+        -Werror=implicit-function-declaration \
+		-Werror=format
 
 clean:
 	rm node
