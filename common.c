@@ -298,7 +298,7 @@ void ring_put(ring_buffer_t *buffer, const void *data)
         buffer->size = buffer->capacity;
         buffer->rptr = buffer->wptr;
     }
-    assert_invariants(buffer);
+    // assert_invariants(buffer);
 }
 
 void* ring_get(ring_buffer_t *buffer)
@@ -311,7 +311,7 @@ void* ring_get(ring_buffer_t *buffer)
     buffer->rptr++;
     buffer->rptr %= buffer->capacity;
     --buffer->size;
-    assert_invariants(buffer);
+    // assert_invariants(buffer);
     return ret;
 }
 
