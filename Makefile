@@ -3,8 +3,8 @@ all: node
 
 node:
 	gcc -std=gnu11 node.c -o node -g -Wall -Wextra -Wpedantic \
-        -Wfatal-errors -Wdouble-promotion -Wfloat-conversion \
-        -Werror=implicit-function-declaration \
+		-Wfatal-errors -Wdouble-promotion -Wfloat-conversion \
+		-Werror=implicit-function-declaration \
 		-Werror=format
 
 clean:

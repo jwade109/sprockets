@@ -135,16 +135,45 @@ int main(int argc, char **argv)
     node_conn_t conn;
     init_conn(&conn);
     conn.socket_fd = conn_fd;
-    conn.on_packet = user_got_a_packet;
 
-    while (spin(&conn) == 0)
+    int retcode = 0;
+
+    while ((retcode = spin(&conn)) == 0)
     {
-        // do stuff
+        packet_t *p;
+        while ((p = ring_get(&conn.inbox)))
+        {
+            user_got_a_packet(p);
+            if (strstr(p->data, "ACK") == 0)
+            {
+                const int len = 200;
+                char buffer[len];
+                sprintf(buffer, "ACK #%u 0x%02X", p->sno, p->checksum);
+                packet_t ack = get_stamped_packet(buffer);
+                ring_put(&conn.outbox, &ack);
+            }
+        }
+
+        if (1.0 * rand() / RAND_MAX < 0.0001)
+        {
+            const int len = 200;
+            char buffer[len];
+            {
+                time_t rawtime;
+                struct tm *info;
+                time(&rawtime);
+                info = localtime(&rawtime);
+                strftime(buffer, len, "%A, %B %d %FT%TZ", info);
+            }
+
+            packet_t out = get_stamped_packet(buffer);
+            ring_put(&conn.outbox, &out);
+        }
     }
 
     free_conn(&conn);
 
-    printf("Done.\n");
+    printf("Done; exit code %d.\n", retcode);
 
     return 0;
 }

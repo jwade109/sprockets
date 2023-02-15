@@ -25,7 +25,7 @@ typedef struct
     uint32_t datalen;
     uint16_t datatype;
     uint8_t checksum;
-    uint8_t data[PACKET_DATA_LEN];
+    char data[PACKET_DATA_LEN];
 }
 packet_t;
 #pragma pack(pop)
@@ -92,7 +92,7 @@ void print_hexdump(char *seq, int len)
 
 void print_packet(packet_t packet)
 {
-    printf("PACKET[%u] %u.%06u %s 0x%02X",
+    printf("PACKET #%u %u.%06u %s 0x%02X",
         packet.sno, packet.secs, packet.usecs, packet.data, packet.checksum);
 }
 
@@ -168,39 +168,8 @@ int send_packet(int fsock, const packet_t *packet)
     {
         return ret;
     }
-
-    printf("[SEND] ");
-    print_packet(*packet);
-    printf("\n");
-
     return ret;
 }
-
-/*
-int read_packet(int fsock, packet_t *packet)
-{
-    int numread = read_message(fsock, (char *) packet, sizeof(packet_t));
-    if (numread != sizeof(packet_t))
-    {
-        return 1; // failure
-    }
-
-    struct timeval now;
-    gettimeofday(&now, NULL);
-    uint64_t nusec = now.tv_sec * 1E6 + now.tv_usec;
-    uint64_t pusec = packet->secs * 1E6 + packet->usecs;
-    int64_t dt = nusec - pusec;
-
-    printf("%lu %lu\n", now.tv_sec, now.tv_usec);
-    printf("%lu %lu\n", packet->secs, packet->usecs);
-
-    printf("[R] ");
-    print_packet(*packet);
-    printf(" [%ld us]\n", dt);
-
-    return 0; // success
-}
-*/
 
 int connect_to_server(int fsock, const char *ip_addr_str, int port)
 {
@@ -264,7 +233,7 @@ int can_recv(int fsock)
 
 typedef struct
 {
-    void *data;
+    char *data;
     size_t wptr;
     size_t rptr;
     size_t capacity;
@@ -280,6 +249,7 @@ int init_buffer(ring_buffer_t *buffer, size_t elem_size, size_t capacity)
     buffer->capacity = capacity;
     buffer->size = 0;
     buffer->elem_size = elem_size;
+    // TODO make this allocate from an arena
     buffer->data = malloc(elem_size * capacity);
     if (!buffer->data)
     {
@@ -296,8 +266,8 @@ void free_buffer(ring_buffer_t *buffer)
 
 void print_ring_buffer(ring_buffer_t *b)
 {
-    printf("[rptr=%d wptr=%d size=%d cap=%d]\n",
-        b->rptr, b->wptr, b->size, b->capacity);
+    printf("[size=%zu rptr=%zu wptr=%zu cap=%zu]",
+        b->size, b->rptr, b->wptr, b->capacity);
 }
 
 void assert_invariants(ring_buffer_t *buffer)
@@ -316,11 +286,10 @@ void assert_invariants(ring_buffer_t *buffer)
     assert(count == buffer->size);
 }
 
-void ring_put(ring_buffer_t *buffer, char c)
+void ring_put(ring_buffer_t *buffer, const void *data)
 {
     void *dst = buffer->data + buffer->wptr * buffer->elem_size;
-    memcpy(dst, &c, sizeof(c));
-    // buffer->data[buffer->wptr] = c;
+    memcpy(dst, data, buffer->elem_size);
     buffer->wptr++;
     buffer->wptr %= buffer->capacity;
     ++buffer->size;
@@ -332,13 +301,13 @@ void ring_put(ring_buffer_t *buffer, char c)
     assert_invariants(buffer);
 }
 
-void * ring_get(ring_buffer_t *buffer)
+void* ring_get(ring_buffer_t *buffer)
 {
     if (!buffer->size)
     {
         return 0;
     }
-    void *ret = buffer->data + buffer->rptr;
+    void *ret = buffer->data + buffer->rptr * buffer->elem_size;
     buffer->rptr++;
     buffer->rptr %= buffer->capacity;
     --buffer->size;
@@ -353,18 +322,17 @@ int buffered_read_msg(int fsock, ring_buffer_t *inbuf)
     int numread = read_message(fsock, buffer, INPUT_BUFFER_SIZE);
     for (int i = 0; i < numread; ++i)
     {
-        ring_put(inbuf, buffer[i]);
+        ring_put(inbuf, (void *) &buffer[i]);
     }
     return numread;
 }
-
-typedef void(*on_packet_cb_t)(const packet_t *);
 
 typedef struct
 {
     int socket_fd;
     ring_buffer_t read_buffer;
-    on_packet_cb_t on_packet;
+    ring_buffer_t inbox;
+    ring_buffer_t outbox;
 }
 node_conn_t;
 
@@ -384,13 +352,13 @@ int cast_buffer_to_packet(packet_t *p, const char *buffer, size_t len)
 
     if (p->preamble != PACKET_PREAMBLE)
     {
-        printf("Bad preamble; expected 0x%X, got 0x%X.\n",
-            PACKET_PREAMBLE, p->preamble);
+        // printf("Bad preamble; expected 0x%X, got 0x%X.\n",
+        //     PACKET_PREAMBLE, p->preamble);
         return -1;
     }
     if (computed_checksum)
     {
-        printf("Bad checksum; expected 0x00, got 0x%02X.\n", computed_checksum);
+        // printf("Bad checksum; expected 0x00, got 0x%02X.\n", computed_checksum);
         return -2;
     }
 
@@ -401,14 +369,6 @@ uint32_t seqnum = 0;
 
 int spin(node_conn_t *conn)
 {
-    if (!conn->on_packet)
-    {
-        printf("Bad callback.\n");
-        return 1;
-    }
-
-    // reset_buffer(buffer);
-
     if (can_recv(conn->socket_fd))
     {
         int len = buffered_read_msg(conn->socket_fd, &conn->read_buffer);
@@ -416,8 +376,6 @@ int spin(node_conn_t *conn)
         {
             return 1;
         }
-
-        // print_ring_buffer(buffer);
 
         while (conn->read_buffer.size >= sizeof(packet_t))
         {
@@ -429,33 +387,20 @@ int spin(node_conn_t *conn)
             packet_t packet;
             if (cast_buffer_to_packet(&packet, contig_buf, sizeof(packet_t)) == 1)
             {
-                conn->on_packet(&packet);
+                ring_put(&conn->inbox, &packet);
             }
         }
-
     }
 
-    if (seqnum++ % 25 == 0)
+    while (conn->outbox.size)
     {
-        const int len = 200;
-        char buffer[len];
-        {
-            time_t rawtime;
-            struct tm *info;
-            time(&rawtime);
-            info = localtime(&rawtime);
-            strftime(buffer, len, "%A, %B %d %FT%TZ", info);
-        }
-
-        packet_t packet = get_stamped_packet(buffer);
-        if (send_packet(conn->socket_fd, &packet))
+        packet_t *out = ring_get(&conn->outbox);
+        if (send_packet(conn->socket_fd, out))
         {
             printf("Failed to send.\n");
             return 1;
         }
     }
-
-    usleep(100);
 
     return 0;
 }
@@ -463,12 +408,25 @@ int spin(node_conn_t *conn)
 void init_conn(node_conn_t *conn)
 {
     init_buffer(&conn->read_buffer, sizeof(char), 6000);
-    conn->on_packet = 0;
+    init_buffer(&conn->inbox, sizeof(packet_t), 100);
+    init_buffer(&conn->outbox, sizeof(packet_t), 100);
 }
 
 void free_conn(node_conn_t *conn)
 {
     free_buffer(&conn->read_buffer);
+    free_buffer(&conn->inbox);
+    free_buffer(&conn->outbox);
     close(conn->socket_fd);
 }
 
+void print_conn(node_conn_t *conn)
+{
+    printf(  "rbuf: ");
+    print_ring_buffer(&conn->read_buffer);
+    printf("\nin:   ");
+    print_ring_buffer(&conn->inbox);
+    printf("\nout:  ");
+    print_ring_buffer(&conn->outbox);
+    printf("\n");
+}
