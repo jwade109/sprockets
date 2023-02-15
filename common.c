@@ -16,7 +16,7 @@
 #define PACKET_PREAMBLE 0x20F7
 
 #pragma pack(push, 1)
-typedef struct packet_t
+typedef struct
 {
     uint16_t preamble;
     uint32_t sno;
@@ -26,7 +26,8 @@ typedef struct packet_t
     uint16_t datatype;
     uint8_t checksum;
     uint8_t data[PACKET_DATA_LEN];
-} packet_t;
+}
+packet_t;
 #pragma pack(pop)
 
 static_assert(sizeof(packet_t) == 149, "Packet size is not as expected");
@@ -263,20 +264,34 @@ int can_recv(int fsock)
 
 typedef struct
 {
-    char data[INPUT_BUFFER_SIZE];
+    void *data;
     size_t wptr;
     size_t rptr;
     size_t capacity;
     size_t size;
+    size_t elem_size;
 }
 ring_buffer_t;
 
-void reset_buffer(ring_buffer_t *buffer)
+int init_buffer(ring_buffer_t *buffer, size_t elem_size, size_t capacity)
 {
     buffer->wptr = 0;
     buffer->rptr = 0;
-    buffer->capacity = INPUT_BUFFER_SIZE;
+    buffer->capacity = capacity;
     buffer->size = 0;
+    buffer->elem_size = elem_size;
+    buffer->data = malloc(elem_size * capacity);
+    if (!buffer->data)
+    {
+        return 0;
+    }
+    return 1;
+}
+
+void free_buffer(ring_buffer_t *buffer)
+{
+    free(buffer->data);
+    buffer->data = 0;
 }
 
 void print_ring_buffer(ring_buffer_t *b)
@@ -303,7 +318,10 @@ void assert_invariants(ring_buffer_t *buffer)
 
 void ring_put(ring_buffer_t *buffer, char c)
 {
-    buffer->data[buffer->wptr++] = c;
+    void *dst = buffer->data + buffer->wptr * buffer->elem_size;
+    memcpy(dst, &c, sizeof(c));
+    // buffer->data[buffer->wptr] = c;
+    buffer->wptr++;
     buffer->wptr %= buffer->capacity;
     ++buffer->size;
     if (buffer->size >= buffer->capacity)
@@ -314,17 +332,18 @@ void ring_put(ring_buffer_t *buffer, char c)
     assert_invariants(buffer);
 }
 
-char ring_get(ring_buffer_t *buffer)
+void * ring_get(ring_buffer_t *buffer)
 {
     if (!buffer->size)
     {
         return 0;
     }
-    char c = buffer->data[buffer->rptr++];
+    void *ret = buffer->data + buffer->rptr;
+    buffer->rptr++;
     buffer->rptr %= buffer->capacity;
     --buffer->size;
     assert_invariants(buffer);
-    return c;
+    return ret;
 }
 
 int buffered_read_msg(int fsock, ring_buffer_t *inbuf)
@@ -405,7 +424,7 @@ int spin(node_conn_t *conn)
             char contig_buf[sizeof(packet_t)];
             for (size_t i = 0; i < sizeof(packet_t); ++i)
             {
-                contig_buf[i] = ring_get(&conn->read_buffer);
+                contig_buf[i] = *(char *) ring_get(&conn->read_buffer);
             }
             packet_t packet;
             if (cast_buffer_to_packet(&packet, contig_buf, sizeof(packet_t)) == 1)
@@ -441,9 +460,15 @@ int spin(node_conn_t *conn)
     return 0;
 }
 
-void reset_conn(node_conn_t *conn)
+void init_conn(node_conn_t *conn)
 {
-    reset_buffer(&conn->read_buffer);
+    init_buffer(&conn->read_buffer, sizeof(char), 6000);
     conn->on_packet = 0;
+}
+
+void free_conn(node_conn_t *conn)
+{
+    free_buffer(&conn->read_buffer);
+    close(conn->socket_fd);
 }
 

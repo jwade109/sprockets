@@ -133,7 +133,7 @@ int main(int argc, char **argv)
     }
 
     node_conn_t conn;
-    reset_conn(&conn);
+    init_conn(&conn);
     conn.socket_fd = conn_fd;
     conn.on_packet = user_got_a_packet;
 
@@ -142,7 +142,8 @@ int main(int argc, char **argv)
         // do stuff
     }
 
-    close(conn_fd);
+    free_conn(&conn);
+
     printf("Done.\n");
 
     return 0;
