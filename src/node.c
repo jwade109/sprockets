@@ -1,8 +1,13 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/time.h>
+#include <stdlib.h>
+#include <signal.h>
 
-#include "common.c"
+#include "common.h"
 
 int bind_to_server(int fsock, const char *ip_addr_str, int port)
 {
@@ -154,7 +159,7 @@ int main(int argc, char **argv)
             }
         }
 
-        if (1.0 * rand() / RAND_MAX < 0.001)
+        if (1.0 * rand() / RAND_MAX < 0.01)
         {
             const int len = 200;
             char buffer[len];

@@ -1,22 +1,19 @@
 
-all: node
+C_FLAGS=-std=gnu11 -Wfatal-errors -Wdouble-promotion -Wfloat-conversion -Werror=implicit-function-declaration -Werror=format -Wall -Wextra -Wpedantic -g
 
-node:
-	gcc -std=gnu11 node.c -o node -g -Wall -Wextra -Wpedantic \
-		-Wfatal-errors -Wdouble-promotion -Wfloat-conversion \
-		-Werror=implicit-function-declaration \
-		-Werror=format
+COMPILATION_UNITS=node common ring_buffer
+OBJECT_FILES=$(addsuffix .o, $(addprefix build/, ${COMPILATION_UNITS}))
+INCLUDE_FILES=include/common.h include/ring_buffer.h
 
-release:
-	gcc -O3 -std=gnu11 node.c -o node -g -Wall -Wextra -Wpedantic \
-		-Wfatal-errors -Wdouble-promotion -Wfloat-conversion \
-		-Werror=implicit-function-declaration \
-		-Werror=format
+all:
+	@make --no-print-directory -j8 node
+
+build/%.o: src/%.c ${INCLUDE_FILES}
+	mkdir -p build/
+	gcc src/$*.c ${C_FLAGS} -c -o build/$*.o -Iinclude/
+
+node: ${OBJECT_FILES}
+	gcc ${OBJECT_FILES} -o node
 
 clean:
-	rm node
-
-sync:
-	./sync.sh pi@slingshot /home/pi/sprockets
-
-.PHONY: node sync
+	rm -rf build/ node
