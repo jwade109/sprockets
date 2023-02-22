@@ -98,10 +98,10 @@ void print_packet(packet_t packet)
         packet.sno, packet.secs, packet.usecs, packet.data, packet.checksum);
 }
 
-void set_socket_reusable(int fsock)
+int set_socket_reusable(int fsock)
 {
     int option = 1;
-    setsockopt(fsock, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
+    return setsockopt(fsock, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
 }
 
 void set_socket_timeout(int fsock, int sec, int usec)
@@ -127,6 +127,14 @@ int get_input_stdin(const char *prompt, char *buffer, size_t bufsize)
     int len = getline(&buffer, &bufsize, stdin);
     buffer[len-1] = 0; // remove newline
     return len;
+}
+
+struct sockaddr_in get_peer_name(int fsock)
+{
+    struct sockaddr_in ret;
+    unsigned int len = sizeof(ret);
+    getpeername(fsock, (struct sockaddr*) &ret, &len);
+    return ret;
 }
 
 int send_message(int fsock, char *msg, int len)

@@ -44,11 +44,13 @@ void print_hexdump(char *seq, int len);
 
 void print_packet(packet_t packet);
 
-void set_socket_reusable(int fsock);
+int set_socket_reusable(int fsock);
 
 void set_socket_timeout(int fsock, int sec, int usec);
 
 struct sockaddr_in get_sockaddr(const char *ipaddr, int port);
+
+struct sockaddr_in get_peer_name(int fsock);
 
 int get_input_stdin(const char *prompt, char *buffer, size_t bufsize);
 
