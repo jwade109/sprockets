@@ -18,9 +18,9 @@ int init_buffer(ring_buffer_t *buffer, size_t elem_size, size_t capacity);
 
 void free_buffer(ring_buffer_t *buffer);
 
-void print_ring_buffer(ring_buffer_t *b);
+void print_ring_buffer(const ring_buffer_t *b);
 
-void assert_invariants(ring_buffer_t *buffer);
+void assert_invariants(const ring_buffer_t *buffer);
 
 void ring_put(ring_buffer_t *buffer, const void *data);
 

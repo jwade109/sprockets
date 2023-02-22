@@ -14,34 +14,7 @@
 #include <unistd.h>
 #include <ring_buffer.h>
 
-#define PACKET_DATA_LEN 128
-#define PACKET_PREAMBLE 0x20F7
-
-#pragma pack(push, 1)
-typedef struct
-{
-    uint16_t preamble;
-    uint32_t sno;
-    uint32_t secs;
-    uint32_t usecs;
-    uint32_t datalen;
-    uint16_t datatype;
-    uint8_t checksum;
-    char data[PACKET_DATA_LEN];
-}
-packet_t;
-#pragma pack(pop)
-
-static_assert(sizeof(packet_t) == 149, "Packet size is not as expected");
-static_assert(sizeof(packet_t) == 21 + PACKET_DATA_LEN, "Packet size is not as expected");
-static_assert(offsetof(packet_t, preamble) == 0, "packet_t::secs offset");
-static_assert(offsetof(packet_t, sno) == 2, "packet_t::secs offset");
-static_assert(offsetof(packet_t, secs) == 6, "packet_t::secs offset");
-static_assert(offsetof(packet_t, usecs) == 10, "packet_t::usecs offset");
-static_assert(offsetof(packet_t, datalen) == 14, "packet_t::datalen offset");
-static_assert(offsetof(packet_t, datatype) == 18, "packet_t::datatype offset");
-static_assert(offsetof(packet_t, checksum) == 20, "packet_t::checksum offset");
-static_assert(offsetof(packet_t, data) == 21, "packet_t::data offset");
+#include "common.h"
 
 uint8_t array_sum(const char *array, size_t len)
 {
@@ -252,15 +225,6 @@ int buffered_read_msg(int fsock, ring_buffer_t *inbuf)
     return numread;
 }
 
-typedef struct
-{
-    int socket_fd;
-    ring_buffer_t read_buffer;
-    ring_buffer_t inbox;
-    ring_buffer_t outbox;
-}
-node_conn_t;
-
 // returns 0 on not enough data
 // returns < 0 for various error codes
 // returns 1 if packet is successfully casted
@@ -290,8 +254,6 @@ int cast_buffer_to_packet(packet_t *p, const char *buffer, size_t len)
     return 1;
 }
 
-uint32_t seqnum = 0;
-
 int spin(node_conn_t *conn)
 {
     if (can_recv(conn->socket_fd))
@@ -299,7 +261,8 @@ int spin(node_conn_t *conn)
         int len = buffered_read_msg(conn->socket_fd, &conn->read_buffer);
         if (!len)
         {
-            return 1;
+            conn->is_disconnect = 1;
+            return 0;
         }
 
         while (conn->read_buffer.size >= sizeof(packet_t))
@@ -332,6 +295,8 @@ int spin(node_conn_t *conn)
 
 void init_conn(node_conn_t *conn)
 {
+    conn->socket_fd = 0;
+    conn->is_disconnect = 0;
     init_buffer(&conn->read_buffer, sizeof(char), 6000);
     init_buffer(&conn->inbox, sizeof(packet_t), 100);
     init_buffer(&conn->outbox, sizeof(packet_t), 100);
@@ -339,14 +304,17 @@ void init_conn(node_conn_t *conn)
 
 void free_conn(node_conn_t *conn)
 {
+    conn->socket_fd = 0;
+    conn->is_disconnect = 1;
     free_buffer(&conn->read_buffer);
     free_buffer(&conn->inbox);
     free_buffer(&conn->outbox);
     close(conn->socket_fd);
 }
 
-void print_conn(node_conn_t *conn)
+void print_conn(const node_conn_t *conn)
 {
+    printf("fd=%d\n", conn->socket_fd);
     printf(  "rbuf: ");
     print_ring_buffer(&conn->read_buffer);
     printf("\nin:   ");

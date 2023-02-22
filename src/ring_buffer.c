@@ -27,13 +27,13 @@ void free_buffer(ring_buffer_t *buffer)
     buffer->data = 0;
 }
 
-void print_ring_buffer(ring_buffer_t *b)
+void print_ring_buffer(const ring_buffer_t *b)
 {
     printf("[size=%zu rptr=%zu wptr=%zu cap=%zu]",
         b->size, b->rptr, b->wptr, b->capacity);
 }
 
-void assert_invariants(ring_buffer_t *buffer)
+void assert_invariants(const ring_buffer_t *buffer)
 {
     if (buffer->size == 0 || buffer->size == buffer->capacity)
     {

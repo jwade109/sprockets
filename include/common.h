@@ -69,6 +69,7 @@ int buffered_read_msg(int fsock, ring_buffer_t *inbuf);
 typedef struct
 {
     int socket_fd;
+    int is_disconnect;
     ring_buffer_t read_buffer;
     ring_buffer_t inbox;
     ring_buffer_t outbox;
@@ -86,6 +87,6 @@ void init_conn(node_conn_t *conn);
 
 void free_conn(node_conn_t *conn);
 
-void print_conn(node_conn_t *conn);
+void print_conn(const node_conn_t *conn);
 
 #endif // SPROCKETS_COMMON_PROCS_H

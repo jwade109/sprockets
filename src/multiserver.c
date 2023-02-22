@@ -12,45 +12,241 @@
 
 #include "common.h"
 
+typedef struct
+{
+    int server_fd;
+    node_conn_t *clients;
+    size_t client_max;
+    size_t client_count;
+}
+server_t;
+
+int open_server(server_t *s, int client_max)
+{
+    s->client_max = client_max;
+    s->client_count = 0;
+    s->clients = calloc(client_max, sizeof(node_conn_t));
+    s->server_fd = 0;
+    return 0;
+}
+
+int close_server(server_t *s)
+{
+    s->client_max = 0;
+    s->client_count = 0;
+    s->server_fd = 0;
+    free(s->clients);
+    return 0;
+}
+
+void print_server(const server_t *s)
+{
+    printf("fd=%d, clients=%zu/%zu\n", s->server_fd,
+        s->client_count, s->client_max);
+    for (size_t i = 0; i < s->client_max; ++i)
+    {
+        const node_conn_t *nc = s->clients + i;
+        if (nc->socket_fd)
+        {
+            print_conn(nc);
+        }
+    }
+}
+
 int send_string(int socket, const char *msg)
 {
     return send(socket, msg, strlen(msg), 0) != (int) strlen(msg);
 }
 
-int main()
+int spin_server(server_t *server, struct sockaddr_in *address)
 {
-    const int MAX_CLIENTS = 3;
-    int client_socket_descriptors[MAX_CLIENTS];
-    for (int i = 0; i < MAX_CLIENTS; ++i)
+    fd_set readfds;
+
+    // clear the socket set
+    FD_ZERO(&readfds);
+
+    // add master socket to set
+    FD_SET(server->server_fd, &readfds);
+    int max_sd = server->server_fd;
+
+    // add child sockets to set
+    for (size_t i = 0; i < server->client_max; i++)
     {
-        client_socket_descriptors[i] = 0;
+        //socket descriptor
+        int sd = server->clients[i].socket_fd;
+        if (!sd)
+        {
+            continue;
+        }
+
+        FD_SET(sd, &readfds);
+        max_sd = (int) fmax(max_sd, sd);
     }
-    int client_count = 0;
 
-    char buffer[1025];
+    // struct timeval timeout;
+    // timeout.tv_sec = 0;
+    // timeout.tv_usec = 2000;
 
-    int master_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (master_socket == 0)
+    int select_ret = select(max_sd + 1, &readfds, 0, 0, 0);
+    if (select_ret < 0 && errno != EINTR)
+    {
+        printf("select error");
+    }
+
+    // if (select_ret == 0)
+    // {
+    //     // nothing to see here
+    //     return 0;
+    // }
+
+    // if something happened on the master socket, then it's an incoming connection
+    if (FD_ISSET(server->server_fd, &readfds))
+    {
+        int addrlen = sizeof(*address);
+        int new_socket = accept(server->server_fd, (struct sockaddr *) address, (socklen_t*) &addrlen);
+
+        if (new_socket < 0)
+        {
+            perror("accept");
+            return -1;
+        }
+
+        if (server->client_count >= server->client_max)
+        {
+            printf("Can't accept any more connections.\n");
+            send_string(new_socket, "CLIENT LIMIT REACHED\n");
+            close(new_socket);
+            return 1;
+        }
+
+        if (send_string(new_socket, "Hello, welcome to Arby's\n"))
+        {
+            perror("send");
+            return -1;
+        }
+
+        // add new socket to array of sockets
+        for (size_t i = 0; i < server->client_max; i++)
+        {
+            if (server->clients[i].socket_fd)
+            {
+                continue;
+            }
+
+            init_conn(&server->clients[i]);
+            server->clients[i].socket_fd = new_socket;
+
+            printf("New connection: cid=%zu, fd=%d, %s:%d\n",
+                i, new_socket,
+                inet_ntoa(address->sin_addr),
+                ntohs(address->sin_port));
+
+            ++server->client_count;
+            printf("Clients: %zu\n", server->client_count);
+
+            size_t audit_count = 0;
+            for (size_t i = 0; i < server->client_max; ++i)
+            {
+                if (server->clients[i].socket_fd)
+                {
+                    ++audit_count;
+                }
+            }
+            printf("Audit: %zu %zu\n", server->client_count, audit_count);
+
+            return 1;
+        }
+    }
+
+    // else its some IO operation on some other socket
+    for (size_t i = 0; i < server->client_max; i++)
+    {
+        int sd = server->clients[i].socket_fd;
+        if (!sd)
+        {
+            continue;
+        }
+
+        if (!FD_ISSET(sd, &readfds))
+        {
+            // nothing to do for this client
+            continue;
+        }
+
+        printf("Processing client #%zu\n", i);
+
+        // oh boy, something happened
+
+        char buffer[1025];
+        int valread = read(sd, buffer, 1024);
+        if (!valread)
+        {
+            // client disconnected
+            struct sockaddr_in peer_addr = get_peer_name(sd);
+            printf("Client disconnected: cid=%zu, fd=%d, %s:%d\n", i, sd,
+                inet_ntoa(peer_addr.sin_addr),
+                ntohs(peer_addr.sin_port));
+            close(sd);
+
+            free_conn(&server->clients[i]);
+
+            --server->client_count;
+            printf("Clients: %zu\n", server->client_count);
+        }
+        else
+        {
+            // got a message from the client
+            buffer[valread] = '\0';
+            printf("[#%zu] %d bytes\n", i, valread);
+            print_hexdump(buffer, valread);
+            if (send_string(sd, buffer))
+            {
+                perror("send");
+                return -1;
+            }
+        }
+    }
+
+    return 1;
+}
+
+int main(int argc, char **argv)
+{
+    for (int i = 1; i < argc; ++i)
+    {
+        if (strcmp(argv[i], "-h") == 0)
+        {
+            printf("Requires IP address and port number.\n");
+            printf("usage: %s [port=8888]\n", argv[0]);
+            return 0;
+        }
+    }
+
+    const int port = argc > 1 ? atoi(argv[1]) : 8888;
+
+    server_t server;
+    open_server(&server, 2);
+
+    server.server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server.server_fd == 0)
     {
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
 
-    // set master socket to allow multiple connections
-    if (set_socket_reusable(master_socket) < 0)
+    if (set_socket_reusable(server.server_fd) < 0)
     {
         perror("setsockopt");
         exit(EXIT_FAILURE);
     }
 
-    const int port = 8888;
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(port);
 
     // bind the socket to localhost port 8888
-    if (bind(master_socket, (struct sockaddr *)&address, sizeof(address))<0)
+    if (bind(server.server_fd, (struct sockaddr *)&address, sizeof(address))<0)
     {
         perror("bind failed");
         exit(EXIT_FAILURE);
@@ -58,140 +254,20 @@ int main()
     printf("Listening on %s:%d\n", inet_ntoa(address.sin_addr), port);
 
     // try to specify maximum of 3 pending connections for the master socket
-    if (listen(master_socket, 3) < 0)
+    if (listen(server.server_fd, 3) < 0)
     {
         perror("listen");
         exit(EXIT_FAILURE);
     }
 
     // accept the incoming connection
-    int addrlen = sizeof(address);
-    puts("Waiting for connections...");
+    printf("Waiting for connections...\n");
 
     while (1)
     {
-        fd_set readfds;
-
-        // clear the socket set
-        FD_ZERO(&readfds);
-
-        // add master socket to set
-        FD_SET(master_socket, &readfds);
-        int max_sd = master_socket;
-
-        // add child sockets to set
-        for (int i = 0; i < MAX_CLIENTS; i++)
+        if (spin_server(&server, &address) != 0)
         {
-            //socket descriptor
-            int sd = client_socket_descriptors[i];
-            if (sd == 0)
-            {
-                continue;
-            }
-
-            FD_SET(sd, &readfds);
-            max_sd = (int) fmax(max_sd, sd);
-        }
-
-        struct timeval timeout;
-        timeout.tv_sec = 0;
-        timeout.tv_usec = 2000;
-
-        // TODO add a timeout for this. blocking calls are big no-no
-        int select_ret = select(max_sd + 1, &readfds, 0, 0, &timeout);
-        if (select_ret < 0 && errno != EINTR)
-        {
-            printf("select error");
-        }
-
-        if (select_ret == 0)
-        {
-            // nothing to see here
-            continue;
-        }
-
-        // if something happened on the master socket, then it's an incoming connection
-        if (FD_ISSET(master_socket, &readfds))
-        {
-            int new_socket = accept(master_socket, (struct sockaddr *) &address, (socklen_t*) &addrlen);
-
-            if (new_socket < 0)
-            {
-                perror("accept");
-                exit(EXIT_FAILURE);
-            }
-
-            if (client_count >= MAX_CLIENTS)
-            {
-                printf("Can't accept any more connections.\n");
-                send_string(new_socket, "CLIENT LIMIT REACHED\n");
-                close(new_socket);
-                continue;
-            }
-
-            if (send_string(new_socket, "Hello, welcome to Arby's\n"))
-            {
-                perror("send");
-            }
-
-            // add new socket to array of sockets
-            for (int i = 0; i < MAX_CLIENTS; i++)
-            {
-                if (client_socket_descriptors[i])
-                {
-                    continue;
-                }
-
-                client_socket_descriptors[i] = new_socket;
-                printf("New connection: cid=%d, fd=%d, %s:%d\n",
-                    i, new_socket,
-                    inet_ntoa(address.sin_addr),
-                    ntohs(address.sin_port));
-
-                ++client_count;
-                printf("Clients: %d\n", client_count);
-
-                break;
-            }
-        }
-
-        // else its some IO operation on some other socket
-        for (int i = 0; i < MAX_CLIENTS; i++)
-        {
-            int sd = client_socket_descriptors[i];
-
-            if (!FD_ISSET(sd, &readfds))
-            {
-                // nothing to do for this client
-                continue;
-            }
-
-            int valread = 0;
-
-            // oh boy, something happened
-            if ((valread = read(sd, buffer, 1024)) == 0)
-            {
-                // client disconnected
-                struct sockaddr_in peer_addr = get_peer_name(sd);
-                printf("Client disconnected: cid=%d, fd=%d, %s:%d\n", i, sd,
-                    inet_ntoa(peer_addr.sin_addr),
-                    ntohs(peer_addr.sin_port));
-                close(sd);
-                client_socket_descriptors[i] = 0;
-                --client_count;
-                printf("Clients: %d\n", client_count);
-                continue;
-            }
-
-            // got a message from the client
-            buffer[valread] = '\0';
-            printf("[#%d] %d bytes\n", i, valread);
-            print_hexdump(buffer, valread);
-            if (send_string(sd, buffer))
-            {
-                perror("send");
-                exit(EXIT_FAILURE);
-            }
+            print_server(&server);
         }
     }
 

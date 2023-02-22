@@ -9,7 +9,7 @@ all:
 	@make --no-print-directory -j8 node multiserver
 
 build/%.o: src/%.c ${INCLUDE_FILES}
-	mkdir -p build/
+	@mkdir -p build/
 	gcc src/$*.c ${C_FLAGS} -c -o build/$*.o -Iinclude/
 
 node: ${OBJECT_FILES} build/node.o
