@@ -69,7 +69,7 @@ int buffered_read_msg(int fsock, ring_buffer_t *inbuf);
 typedef struct
 {
     int socket_fd;
-    int is_disconnect;
+    int is_connected;
     ring_buffer_t read_buffer;
     ring_buffer_t inbox;
     ring_buffer_t outbox;

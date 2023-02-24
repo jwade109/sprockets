@@ -159,7 +159,7 @@ int main(int argc, char **argv)
             }
         }
 
-        if (1.0 * rand() / RAND_MAX < 0.0001)
+        if (1.0 * rand() / RAND_MAX < 0.001)
         {
             const int len = 200;
             char buffer[len];

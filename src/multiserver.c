@@ -46,7 +46,7 @@ void print_server(const server_t *s)
     for (size_t i = 0; i < s->client_max; ++i)
     {
         const node_conn_t *nc = s->clients + i;
-        if (nc->socket_fd)
+        if (nc->is_connected)
         {
             print_conn(nc);
         }
@@ -72,32 +72,25 @@ int spin_server(server_t *server, struct sockaddr_in *address)
     // add child sockets to set
     for (size_t i = 0; i < server->client_max; i++)
     {
-        //socket descriptor
-        int sd = server->clients[i].socket_fd;
-        if (!sd)
+        if (!server->clients[i].is_connected)
         {
             continue;
         }
 
+        int sd = server->clients[i].socket_fd;
         FD_SET(sd, &readfds);
         max_sd = (int) fmax(max_sd, sd);
     }
 
-    // struct timeval timeout;
-    // timeout.tv_sec = 0;
-    // timeout.tv_usec = 2000;
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 2000;
 
-    int select_ret = select(max_sd + 1, &readfds, 0, 0, 0);
+    int select_ret = select(max_sd + 1, &readfds, 0, 0, &timeout);
     if (select_ret < 0 && errno != EINTR)
     {
         printf("select error");
     }
-
-    // if (select_ret == 0)
-    // {
-    //     // nothing to see here
-    //     return 0;
-    // }
 
     // if something happened on the master socket, then it's an incoming connection
     if (FD_ISSET(server->server_fd, &readfds))
@@ -128,13 +121,14 @@ int spin_server(server_t *server, struct sockaddr_in *address)
         // add new socket to array of sockets
         for (size_t i = 0; i < server->client_max; i++)
         {
-            if (server->clients[i].socket_fd)
+            if (server->clients[i].is_connected)
             {
                 continue;
             }
 
             init_conn(&server->clients[i]);
             server->clients[i].socket_fd = new_socket;
+            server->clients[i].is_connected = 1;
 
             printf("New connection: cid=%zu, fd=%d, %s:%d\n",
                 i, new_socket,
@@ -142,17 +136,6 @@ int spin_server(server_t *server, struct sockaddr_in *address)
                 ntohs(address->sin_port));
 
             ++server->client_count;
-            printf("Clients: %zu\n", server->client_count);
-
-            size_t audit_count = 0;
-            for (size_t i = 0; i < server->client_max; ++i)
-            {
-                if (server->clients[i].socket_fd)
-                {
-                    ++audit_count;
-                }
-            }
-            printf("Audit: %zu %zu\n", server->client_count, audit_count);
 
             return 1;
         }
@@ -161,25 +144,23 @@ int spin_server(server_t *server, struct sockaddr_in *address)
     // else its some IO operation on some other socket
     for (size_t i = 0; i < server->client_max; i++)
     {
-        int sd = server->clients[i].socket_fd;
-        if (!sd)
+        if (!server->clients[i].is_connected)
         {
             continue;
         }
 
+        int sd = server->clients[i].socket_fd;
         if (!FD_ISSET(sd, &readfds))
         {
             // nothing to do for this client
             continue;
         }
 
-        printf("Processing client #%zu\n", i);
-
         // oh boy, something happened
 
-        char buffer[1025];
-        int valread = read(sd, buffer, 1024);
-        if (!valread)
+        spin(server->clients + i);
+
+        if (!server->clients[i].is_connected)
         {
             // client disconnected
             struct sockaddr_in peer_addr = get_peer_name(sd);
@@ -192,18 +173,6 @@ int spin_server(server_t *server, struct sockaddr_in *address)
 
             --server->client_count;
             printf("Clients: %zu\n", server->client_count);
-        }
-        else
-        {
-            // got a message from the client
-            buffer[valread] = '\0';
-            printf("[#%zu] %d bytes\n", i, valread);
-            print_hexdump(buffer, valread);
-            if (send_string(sd, buffer))
-            {
-                perror("send");
-                return -1;
-            }
         }
     }
 
@@ -267,8 +236,8 @@ int main(int argc, char **argv)
     {
         if (spin_server(&server, &address) != 0)
         {
-            print_server(&server);
         }
+        print_server(&server);
     }
 
     return 0;

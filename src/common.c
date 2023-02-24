@@ -261,7 +261,7 @@ int spin(node_conn_t *conn)
         int len = buffered_read_msg(conn->socket_fd, &conn->read_buffer);
         if (!len)
         {
-            conn->is_disconnect = 1;
+            conn->is_connected = 0;
             return 0;
         }
 
@@ -296,7 +296,7 @@ int spin(node_conn_t *conn)
 void init_conn(node_conn_t *conn)
 {
     conn->socket_fd = 0;
-    conn->is_disconnect = 0;
+    conn->is_connected = 0;
     init_buffer(&conn->read_buffer, sizeof(char), 6000);
     init_buffer(&conn->inbox, sizeof(packet_t), 100);
     init_buffer(&conn->outbox, sizeof(packet_t), 100);
@@ -305,7 +305,7 @@ void init_conn(node_conn_t *conn)
 void free_conn(node_conn_t *conn)
 {
     conn->socket_fd = 0;
-    conn->is_disconnect = 1;
+    conn->is_connected = 0;
     free_buffer(&conn->read_buffer);
     free_buffer(&conn->inbox);
     free_buffer(&conn->outbox);
