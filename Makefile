@@ -6,7 +6,7 @@ OBJECT_FILES=$(addsuffix .o, $(addprefix build/, ${COMPILATION_UNITS}))
 INCLUDE_FILES=include/common.h include/ring_buffer.h
 
 all:
-	@make --no-print-directory -j8 node multiserver
+	@make --no-print-directory -j8 node multiserver msggen
 
 build/%.o: src/%.c ${INCLUDE_FILES}
 	@mkdir -p build/
@@ -18,5 +18,8 @@ node: ${OBJECT_FILES} build/node.o
 multiserver: ${OBJECT_FILES} build/multiserver.o
 	gcc ${OBJECT_FILES} build/multiserver.o -o multiserver -lm
 
+msggen: build/msggen.o
+	gcc build/msggen.o -o msggen
+
 clean:
-	rm -rf build/ node
+	rm -rf build/ node multiserver msggen

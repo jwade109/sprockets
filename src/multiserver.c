@@ -172,7 +172,6 @@ int spin_server(server_t *server, struct sockaddr_in *address)
             free_conn(&server->clients[i]);
 
             --server->client_count;
-            printf("Clients: %zu\n", server->client_count);
         }
     }
 
@@ -194,7 +193,7 @@ int main(int argc, char **argv)
     const int port = argc > 1 ? atoi(argv[1]) : 8888;
 
     server_t server;
-    open_server(&server, 2);
+    open_server(&server, 10);
 
     server.server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server.server_fd == 0)
