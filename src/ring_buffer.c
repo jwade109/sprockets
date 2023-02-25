@@ -29,8 +29,8 @@ void free_buffer(ring_buffer_t *buffer)
 
 void print_ring_buffer(const ring_buffer_t *b)
 {
-    printf("[size=%zu rptr=%zu wptr=%zu cap=%zu]",
-        b->size, b->rptr, b->wptr, b->capacity);
+    printf("[%zu/%zu r=%zu w=%zu]",
+        b->size, b->capacity, b->rptr, b->wptr);
 }
 
 void assert_invariants(const ring_buffer_t *buffer)

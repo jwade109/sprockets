@@ -110,20 +110,13 @@ struct sockaddr_in get_peer_name(int fsock)
     return ret;
 }
 
-int send_message(int fsock, char *msg, int len)
+int send_message(int fsock, const char *msg, int len)
 {
     if (len < 1)
     {
         printf("Cannot send 0 characters.\n");
         return 1;
     }
-
-    // uint64_t usecs;
-    // uint64_t datalen;
-    // uint16_t datatype;
-    // uint8_t checksum;
-    // printf("Sending %d characters:\n", len);
-    // print_hexdump(msg, len);
 
     int sent = send(fsock, msg, len, 0);
     if (sent < 0 || len != sent)
@@ -132,6 +125,11 @@ int send_message(int fsock, char *msg, int len)
         return 1;
     }
     return 0;
+}
+
+int send_string(int socket, const char *msg)
+{
+    return send_message(socket, msg, strlen(msg));
 }
 
 int read_message(int fsock, char *buffer, int len)
@@ -199,22 +197,9 @@ int can_recv(int fsock)
     return select(fsock + 1, &read_set, NULL, NULL, &select_timeout) > 0;
 }
 
-// doesn't seem to actually work
-// int can_send(int fsock)
-// {
-//     struct timeval select_timeout;
-//     select_timeout.tv_usec = 200;
-//     select_timeout.tv_sec = 0;
-
-//     fd_set write_set;
-//     FD_ZERO(&write_set);
-//     FD_SET(fsock, &write_set);
-//     return select(fsock + 1, NULL, &write_set, NULL, &select_timeout) > 0;
-// }
-
 int buffered_read_msg(int fsock, ring_buffer_t *inbuf)
 {
-    const int buffer_size = 6000;
+    const int buffer_size = inbuf->capacity;
     char buffer[buffer_size];
 
     int numread = read_message(fsock, buffer, buffer_size);
@@ -256,27 +241,36 @@ int cast_buffer_to_packet(packet_t *p, const char *buffer, size_t len)
 
 int spin(node_conn_t *conn)
 {
+    if (!conn->is_connected)
+    {
+        return 0;
+    }
+
+    int retcode = 1;
+
     if (can_recv(conn->socket_fd))
     {
         int len = buffered_read_msg(conn->socket_fd, &conn->read_buffer);
         if (!len)
         {
             conn->is_connected = 0;
-            return 0;
+            close(conn->socket_fd);
+            printf("Closing.\n");
+            retcode = -1;
         }
+    }
 
-        while (conn->read_buffer.size >= sizeof(packet_t))
+    while (conn->read_buffer.size >= sizeof(packet_t))
+    {
+        char contig_buf[sizeof(packet_t)];
+        for (size_t i = 0; i < sizeof(packet_t); ++i)
         {
-            char contig_buf[sizeof(packet_t)];
-            for (size_t i = 0; i < sizeof(packet_t); ++i)
-            {
-                contig_buf[i] = *(char *) ring_get(&conn->read_buffer);
-            }
-            packet_t packet;
-            if (cast_buffer_to_packet(&packet, contig_buf, sizeof(packet_t)) == 1)
-            {
-                ring_put(&conn->inbox, &packet);
-            }
+            contig_buf[i] = *(char *) ring_get(&conn->read_buffer);
+        }
+        packet_t packet;
+        if (cast_buffer_to_packet(&packet, contig_buf, sizeof(packet_t)) == 1)
+        {
+            ring_put(&conn->inbox, &packet);
         }
     }
 
@@ -286,18 +280,17 @@ int spin(node_conn_t *conn)
         if (send_packet(conn->socket_fd, out))
         {
             printf("Failed to send.\n");
-            return 1;
         }
     }
 
-    return 0;
+    return retcode;
 }
 
 void init_conn(node_conn_t *conn)
 {
     conn->socket_fd = 0;
     conn->is_connected = 0;
-    init_buffer(&conn->read_buffer, sizeof(char), 6000);
+    init_buffer(&conn->read_buffer, sizeof(char), 1000);
     init_buffer(&conn->inbox, sizeof(packet_t), 100);
     init_buffer(&conn->outbox, sizeof(packet_t), 100);
 }
@@ -309,7 +302,6 @@ void free_conn(node_conn_t *conn)
     free_buffer(&conn->read_buffer);
     free_buffer(&conn->inbox);
     free_buffer(&conn->outbox);
-    close(conn->socket_fd);
 }
 
 void print_conn(const node_conn_t *conn)

@@ -53,47 +53,10 @@ void print_server(const server_t *s)
     }
 }
 
-int send_string(int socket, const char *msg)
-{
-    return send(socket, msg, strlen(msg), 0) != (int) strlen(msg);
-}
-
 int spin_server(server_t *server, struct sockaddr_in *address)
 {
-    fd_set readfds;
-
-    // clear the socket set
-    FD_ZERO(&readfds);
-
-    // add master socket to set
-    FD_SET(server->server_fd, &readfds);
-    int max_sd = server->server_fd;
-
-    // add child sockets to set
-    for (size_t i = 0; i < server->client_max; i++)
-    {
-        if (!server->clients[i].is_connected)
-        {
-            continue;
-        }
-
-        int sd = server->clients[i].socket_fd;
-        FD_SET(sd, &readfds);
-        max_sd = (int) fmax(max_sd, sd);
-    }
-
-    struct timeval timeout;
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 2000;
-
-    int select_ret = select(max_sd + 1, &readfds, 0, 0, &timeout);
-    if (select_ret < 0 && errno != EINTR)
-    {
-        printf("select error");
-    }
-
     // if something happened on the master socket, then it's an incoming connection
-    if (FD_ISSET(server->server_fd, &readfds))
+    if (can_recv(server->server_fd))
     {
         int addrlen = sizeof(*address);
         int new_socket = accept(server->server_fd, (struct sockaddr *) address, (socklen_t*) &addrlen);
@@ -144,32 +107,18 @@ int spin_server(server_t *server, struct sockaddr_in *address)
     // else its some IO operation on some other socket
     for (size_t i = 0; i < server->client_max; i++)
     {
-        if (!server->clients[i].is_connected)
-        {
-            continue;
-        }
+        node_conn_t *conn = server->clients + i;
 
-        int sd = server->clients[i].socket_fd;
-        if (!FD_ISSET(sd, &readfds))
-        {
-            // nothing to do for this client
-            continue;
-        }
-
-        // oh boy, something happened
-
-        spin(server->clients + i);
-
-        if (!server->clients[i].is_connected)
+        int ret = spin(conn);
+        if (ret == -1) // client disconnected
         {
             // client disconnected
-            struct sockaddr_in peer_addr = get_peer_name(sd);
-            printf("Client disconnected: cid=%zu, fd=%d, %s:%d\n", i, sd,
+            struct sockaddr_in peer_addr = get_peer_name(conn->socket_fd);
+            printf("Client disconnected: cid=%zu, fd=%d, %s:%d\n",
+                i, conn->socket_fd,
                 inet_ntoa(peer_addr.sin_addr),
                 ntohs(peer_addr.sin_port));
-            close(sd);
-
-            free_conn(&server->clients[i]);
+            free_conn(conn);
 
             --server->client_count;
         }
@@ -233,10 +182,9 @@ int main(int argc, char **argv)
 
     while (1)
     {
-        if (spin_server(&server, &address) != 0)
-        {
-        }
+        spin_server(&server, &address);
         print_server(&server);
+        usleep(50000);
     }
 
     return 0;

@@ -54,7 +54,9 @@ struct sockaddr_in get_peer_name(int fsock);
 
 int get_input_stdin(const char *prompt, char *buffer, size_t bufsize);
 
-int send_message(int fsock, char *msg, int len);
+int send_message(int fsock, const char *msg, int len);
+
+int send_string(int socket, const char *msg);
 
 int read_message(int fsock, char *buffer, int len);
 

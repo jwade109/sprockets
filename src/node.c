@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <arpa/inet.h>
 
 #include "common.h"
 
@@ -40,8 +41,6 @@ int bind_to_server(int fsock, const char *ip_addr_str, int port)
 
     return client_fd;
 }
-
-uint32_t next_foreign_serial_no = 0;
 
 typedef struct timeval timeval;
 
@@ -79,13 +78,6 @@ void user_got_a_packet(const packet_t *p)
     printf("[RECV] ");
     print_packet(*p);
     printf(" [%d us]\n", dt);
-
-    // if (p->sno != next_foreign_serial_no)
-    // {
-    //     printf("Serial number mismatch; expected %u, got %u.\n",
-    //         next_foreign_serial_no, p->sno);
-    // }
-    // next_foreign_serial_no = p->sno + 1;
 }
 
 int main(int argc, char **argv)
@@ -140,10 +132,15 @@ int main(int argc, char **argv)
     node_conn_t conn;
     init_conn(&conn);
     conn.socket_fd = conn_fd;
+    conn.is_connected = 1;
+
+    struct sockaddr_in peer_addr = get_peer_name(conn_fd);
+    printf("Connected to peer %s:%d\n",
+        inet_ntoa(peer_addr.sin_addr), ntohs(peer_addr.sin_port));
 
     int retcode = 0;
 
-    while ((retcode = spin(&conn)) == 0)
+    while ((retcode = spin(&conn)) > -1)
     {
         packet_t *p;
         while ((p = ring_get(&conn.inbox)))
