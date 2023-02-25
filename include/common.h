@@ -91,4 +91,21 @@ void free_conn(node_conn_t *conn);
 
 void print_conn(const node_conn_t *conn);
 
+typedef struct
+{
+    int server_fd;
+    node_conn_t *clients;
+    size_t client_max;
+    size_t client_count;
+}
+server_t;
+
+int open_server(server_t *s, int client_max);
+
+int close_server(server_t *s);
+
+void print_server(const server_t *s);
+
+int spin_server(server_t *server, struct sockaddr_in *address);
+
 #endif // SPROCKETS_COMMON_PROCS_H
