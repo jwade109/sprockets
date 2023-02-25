@@ -24,7 +24,7 @@ int init_buffer(ring_buffer_t *buffer, size_t elem_size, size_t capacity)
 void free_buffer(ring_buffer_t *buffer)
 {
     free(buffer->data);
-    buffer->data = 0;
+    memset(buffer, 0, sizeof(ring_buffer_t));
 }
 
 void print_ring_buffer(const ring_buffer_t *b)
