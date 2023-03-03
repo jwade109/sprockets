@@ -82,7 +82,7 @@ void print_ring_dump(const ring_buffer_t *buffer)
 
 void send_packet_at_random(node_conn_t *conn)
 {
-    if (1.0 * rand() / RAND_MAX < 0.01)
+    if (1.0 * rand() / RAND_MAX < 0.1)
     {
         const int len = 200;
         char buffer[len];
@@ -96,6 +96,22 @@ void send_packet_at_random(node_conn_t *conn)
 
         packet_t out = get_stamped_packet(buffer);
         ring_put(&conn->outbox, &out);
+    }
+}
+
+void send_random_ascii_bytes(node_conn_t *conn)
+{
+    const unsigned char start = ' ';
+    const unsigned char end = '~' + 1;
+
+    if (1.0 * rand() / RAND_MAX < 0.05)
+    {
+        size_t len = rand() % 300 + 12;
+        for (size_t i = 0; i < len; ++i)
+        {
+            unsigned char c = rand() % (end - start) + start;
+            ring_put(&conn->write_buffer, &c);
+        }
     }
 }
 
@@ -127,20 +143,22 @@ int main(int argc, char **argv)
     const int portup = atoi(argv[2]);
     const int portdown = atoi(argv[3]);
 
-    node_conn_t conn;
-    init_conn(&conn);
+    node_conn_t upstream;
+    init_conn(&upstream);
 
     if (strcmp(addrup, "-") != 0)
     {
-        if (connect_to_upstream(&conn, addrup, portup) < 0)
+        if (connect_to_upstream(&upstream, addrup, portup) < 0)
         {
             perror("failed to connect to upstream");
             return 1;
         }
     }
 
+    const size_t max_clients = 10;
+
     server_t server;
-    if (init_server(&server, 10) < 0)
+    if (init_server(&server, max_clients) < 0)
     {
         perror("open server failed");
         return -1;
@@ -152,44 +170,57 @@ int main(int argc, char **argv)
         return -1;
     }
 
+    size_t iter = 0;
+
     while (1)
     {
-        send_packet_at_random(&conn);
-        for (size_t i = 0; i < server.client_count; ++i)
+        ++iter;
+        node_conn_t* connections[max_clients + 1];
+        connections[0] = &upstream;
+        for (size_t i = 0; i < max_clients; ++i)
         {
-            node_conn_t *nc = server.clients + i;
+            connections[i + 1] = server.clients + i;
+        }
+
+        // loop for every connection, both down and upstream
+        for (size_t i = 0; i < max_clients + 1; ++i)
+        {
+            node_conn_t *nc = connections[i];
             if (!nc->is_connected)
             {
                 continue;
             }
-            send_packet_at_random(nc);
-            printf("D ");
-            print_conn(nc);
-            print_ring_dump(&nc->read_buffer);
+            // send_packet_at_random(nc);
+            send_random_ascii_bytes(nc);
+            if (iter % 100 == 0)
+            {
+                if (i == 0)
+                {
+                    printf("U  ");
+                }
+                else
+                {
+                    printf("D%zu ", i - 1);
+                }
+                print_conn(nc);
+            }
+            // print_ring_dump(&nc->read_buffer);
         }
 
-        if (spin(&conn) < 0)
+        if (spin_conn(&upstream) < 0)
         {
             perror("upstream disconnected");
             return 1;
         }
 
-        if (conn.is_connected)
-        {
-            printf("U ");
-            print_conn(&conn);
-            print_ring_dump(&conn.read_buffer);
-        }
-
         packet_t *p;
-        while ((p = ring_get(&conn.inbox)))
+        while ((p = ring_get(&upstream.inbox)))
         {
             // do stuff with p
         }
 
-
         spin_server(&server);
-        usleep(100000);
+        usleep(1000);
     }
 
     printf("Done.\n");

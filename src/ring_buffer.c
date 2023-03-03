@@ -34,6 +34,13 @@ void print_ring_buffer(const ring_buffer_t *b)
         b->size, b->capacity, b->rptr, b->wptr, b->high_water_mark);
 }
 
+void reset_ptrs_if_possible(ring_buffer_t *b)
+{
+    int reset = b->rptr == b->wptr && !b->size;
+    b->rptr -= b->rptr * reset;
+    b->wptr -= b->wptr * reset;
+}
+
 void assert_invariants(const ring_buffer_t *buffer)
 {
     if (buffer->size == 0 || buffer->size == buffer->capacity)
@@ -63,6 +70,7 @@ void ring_put(ring_buffer_t *buffer, const void *data)
         buffer->rptr = buffer->wptr;
     }
     ++buffer->high_water_mark;
+    reset_ptrs_if_possible(buffer);
     // assert_invariants(buffer);
 }
 
@@ -76,6 +84,7 @@ void* ring_get(ring_buffer_t *buffer)
     buffer->rptr++;
     buffer->rptr %= buffer->capacity;
     --buffer->size;
+    reset_ptrs_if_possible(buffer);
     // assert_invariants(buffer);
     return ret;
 }

@@ -273,7 +273,7 @@ int cast_buffer_to_packet(packet_t *p, const char *buffer, size_t len)
     return 1;
 }
 
-int spin(node_conn_t *conn)
+int spin_conn(node_conn_t *conn)
 {
     if (!conn->is_connected)
     {
@@ -294,6 +294,7 @@ int spin(node_conn_t *conn)
         }
     }
 
+    // todo read packets from read_buffer
     // while (conn->read_buffer.size >= sizeof(packet_t))
     // {
     //     // possibly merge this with to_contiguous_buffer.
@@ -317,15 +318,11 @@ int spin(node_conn_t *conn)
         {
             ring_put(&conn->write_buffer, out + i);
         }
-
-        // if (send_packet(conn->socket_fd, out))
-        // {
-        //     printf("Failed to send.\n");
-        // }
     }
 
-    for (size_t i = 0; i < 5 && conn->write_buffer.size; ++i)
+    while (conn->write_buffer.size)
     {
+        // todo get contiguous regions of ring buffer
         const char *c = ring_get(&conn->write_buffer);
         if (send_message(conn->socket_fd, c, 1))
         {
@@ -445,7 +442,7 @@ int spin_server(server_t *server)
     {
         node_conn_t *conn = server->clients + i;
 
-        int ret = spin(conn);
+        int ret = spin_conn(conn);
         if (ret == -1) // client disconnected
         {
             // client disconnected

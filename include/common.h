@@ -70,7 +70,7 @@ node_conn_t;
 // returns 1 if packet is successfully casted
 int cast_buffer_to_packet(packet_t *p, const char *buffer, size_t len);
 
-int spin(node_conn_t *conn);
+int spin_conn(node_conn_t *conn);
 
 void init_conn(node_conn_t *conn);
 
