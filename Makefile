@@ -1,29 +1,32 @@
 
 C_FLAGS=-std=gnu11 -Wfatal-errors -Wdouble-promotion -Wfloat-conversion -Werror=implicit-function-declaration -Werror=format -Wall -Wextra -Wpedantic -g
 
-COMPILATION_UNITS=common ring_buffer dynamic_array
-OBJECT_FILES=$(addsuffix .o, $(addprefix build/, ${COMPILATION_UNITS}))
-INCLUDE_FILES=include/common.h include/ring_buffer.h
+LIB_COMPILATION_UNITS=common ring_buffer dynamic_array
+LIB_OBJECTS=$(addsuffix .o, $(addprefix build/, ${LIB_COMPILATION_UNITS}))
+LIB_HEADERS=include/common.h include/ring_buffer.h
+
+MESSAGES=packet
+MSG_OBJECTS=$(addsuffix .o, $(addprefix build/, ${MESSAGES}))
+MSG_HEADERS=$(addsuffix .h, $(addprefix include/, ${MESSAGES}))
 
 all:
-	@make --no-print-directory -j8 node multiserver msggen
+	@make --no-print-directory -j8 node multiserver msggen messages
 
-build/%.o: src/%.c ${INCLUDE_FILES}
+build/%.o: src/%.c ${LIB_HEADERS}
 	@mkdir -p build/
 	gcc src/$*.c ${C_FLAGS} -c -o build/$*.o -Iinclude/
 
-node: ${OBJECT_FILES} build/node.o
-	gcc ${OBJECT_FILES} build/node.o -o node
+node: ${LIB_OBJECTS} ${MSG_OBJECTS} build/node.o
+	gcc ${LIB_OBJECTS} ${MSG_OBJECTS} build/node.o -o node
 
-multiserver: ${OBJECT_FILES} build/multiserver.o
-	gcc ${OBJECT_FILES} build/multiserver.o -o multiserver -lm
+multiserver: ${LIB_OBJECTS} ${MSG_OBJECTS} build/multiserver.o
+	gcc ${LIB_OBJECTS} ${MSG_OBJECTS} build/multiserver.o -o multiserver -lm
 
-msggen: ${OBJECT_FILES} build/msggen.o
-	gcc ${OBJECT_FILES} build/msggen.o -o msggen
+msggen: ${LIB_OBJECTS} build/msggen.o
+	gcc ${LIB_OBJECTS} build/msggen.o -o msggen
 
 messages: msggen
-	./msggen msg/packet.msg generated/packet_gen.h generated/packet_gen.c
-	gcc generated/packet_gen.c ${C_FLAGS} -I . -c -o build/packet_gen.o
+	./msggen msg/packet.msg include/packet.h src/packet.c
 
 clean:
 	rm -rf build/ node multiserver msggen

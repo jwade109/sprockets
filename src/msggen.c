@@ -15,44 +15,48 @@ typedef enum
     S16,
     S32,
     F32,
-    STR
+    STR,
+    NUM_FIELD_TYPES
 }
 field_type;
 
-const char *c_field_strings[7] = {
+const char *c_field_strings[NUM_FIELD_TYPES] = {
     "uint8_t",
     "uint16_t",
     "uint32_t",
     "int8_t",
     "int16_t",
     "int32_t",
-    "float"
+    "float",
+    "char"
 };
 
-const char *msg_field_strings[7] = {
+const char *msg_field_strings[NUM_FIELD_TYPES] = {
     "u8",
     "u16",
     "u32",
     "s8",
     "s16",
     "s32",
-    "f32"
+    "f32",
+    "str"
 };
 
-const char *field_printf_specifiers[7] = {
+const char *field_printf_specifiers[NUM_FIELD_TYPES] = {
     "d",
     "d",
     "d",
     "d",
     "d",
     "d",
-    "d"
+    "d",
+    "s"
 };
 
 int stoft(const char *str)
 {
     int ret = -1;
-    for (size_t i = 0; i < 7; ++i)
+    for (size_t i = 0; i < NUM_FIELD_TYPES; ++i)
     {
         const char *ts = msg_field_strings[i];
         if (strcmp(ts, str) == 0)
@@ -124,7 +128,7 @@ void emit_header(FILE *out, const char *source_msg_file,
 
     emit_include_directive(out, "stdint.h");
 
-    fprintf(out, "\ntypedef struct\n{\n");
+    fprintf(out, "\n#pragma pack(push, 1)\ntypedef struct\n{\n");
 
     for (size_t i = 0; i < fields->size; ++i)
     {
@@ -133,10 +137,17 @@ void emit_header(FILE *out, const char *source_msg_file,
         int type = field->type;
         const char *name = field->name;
 
-        fprintf(out, "    %s %s;\n", c_field_strings[type], name);
+        if (type == STR)
+        {
+            fprintf(out, "    char %s[128];\n", name);
+        }
+        else
+        {
+            fprintf(out, "    %s %s;\n", c_field_strings[type], name);
+        }
     }
 
-    fprintf(out, "}\n%s_t;\n", message_type_name);
+    fprintf(out, "}\n%s_t;\n#pragma pack(pop)\n", message_type_name);
     fprintf(out, "\nvoid print_%s(const %s_t *m);\n\n",
         message_type_name, message_type_name);
 
@@ -145,22 +156,23 @@ void emit_header(FILE *out, const char *source_msg_file,
 
 void emit_source(FILE *out, const char *source_msg_file,
     const char *message_type_name,
-    const char *out_header_filename,
     const dynamic_array *fields)
 {
     emit_autogen_header(out, source_msg_file, fields);
 
-    emit_include_directive(out, out_header_filename);
+    char buffer[100];
+    sprintf(buffer, "%s.h", message_type_name);
+    emit_include_directive(out, buffer);
     emit_include_directive(out, "stdio.h");
 
     fprintf(out, "\nvoid print_%s(const %s_t *m)\n{\n",
         message_type_name, message_type_name);
-    fprintf(out, "    printf(\"%s_t\");\n", message_type_name);
+    fprintf(out, "    printf(\"%s_t \");\n", message_type_name);
 
     for (size_t i = 0; i < fields->size; ++i)
     {
         message_field_t *field = array_get(fields, i);
-        fprintf(out, "    printf(\"%s=%%%s\", m->%s);\n",
+        fprintf(out, "    printf(\"%s=%%%s \", m->%s);\n",
             field->name,
             field_printf_specifiers[field->type],
             field->name);
@@ -249,7 +261,7 @@ int main(int argc, char **argv)
     }
 
     emit_header(out_h, infile, message_type_name, &fields);
-    emit_source(out_c, infile, message_type_name, out_header, &fields);
+    emit_source(out_c, infile, message_type_name, &fields);
 
     fclose(in);
     fclose(out_h);

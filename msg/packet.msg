@@ -4,6 +4,5 @@ u32 secs
 u32 usecs
 u32 datalen
 u16 datatype
-u32 apples
-u16 oranges
 u8  checksum
+str data

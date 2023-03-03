@@ -7,15 +7,15 @@
 // u32 usecs
 // u32 datalen
 // u16 datatype
-// u32 apples
-// u16 oranges
 // u8 checksum
+// str data
 
 #ifndef SPROCKETS_AUTOGEN_MESSAGE_packet_H
 #define SPROCKETS_AUTOGEN_MESSAGE_packet_H
 
 #include <stdint.h>
 
+#pragma pack(push, 1)
 typedef struct
 {
     uint16_t preamble;
@@ -24,11 +24,11 @@ typedef struct
     uint32_t usecs;
     uint32_t datalen;
     uint16_t datatype;
-    uint32_t apples;
-    uint16_t oranges;
     uint8_t checksum;
+    char data[128];
 }
 packet_t;
+#pragma pack(pop)
 
 void print_packet(const packet_t *m);
 

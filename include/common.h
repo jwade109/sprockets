@@ -6,24 +6,10 @@
 #include <netinet/in.h>
 
 #include "ring_buffer.h"
+#include <packet.h>
 
 #define PACKET_DATA_LEN 128
 #define PACKET_PREAMBLE 0x20F7
-
-#pragma pack(push, 1)
-typedef struct
-{
-    uint16_t preamble;
-    uint32_t sno;
-    uint32_t secs;
-    uint32_t usecs;
-    uint32_t datalen;
-    uint16_t datatype;
-    uint8_t checksum;
-    char data[PACKET_DATA_LEN];
-}
-packet_t;
-#pragma pack(pop)
 
 static_assert(sizeof(packet_t) == 149, "Packet size is not as expected");
 static_assert(sizeof(packet_t) == 21 + PACKET_DATA_LEN, "Packet size is not as expected");
@@ -42,8 +28,6 @@ packet_t get_stamped_packet(char *msg);
 
 void print_hexdump(char *seq, int len);
 
-void print_packet(packet_t packet);
-
 int set_socket_reusable(int fsock);
 
 void set_socket_timeout(int fsock, int sec, int usec);
@@ -51,6 +35,8 @@ void set_socket_timeout(int fsock, int sec, int usec);
 struct sockaddr_in get_sockaddr(const char *ipaddr, int port);
 
 struct sockaddr_in get_peer_name(int fsock);
+
+char* get_peer_str(struct sockaddr_in addr);
 
 int get_input_stdin(const char *prompt, char *buffer, size_t bufsize);
 
@@ -62,7 +48,7 @@ int read_message(int fsock, char *buffer, int len);
 
 int send_packet(int fsock, const packet_t *packet);
 
-int connect_to_server(int fsock, const char *ip_addr_str, int port);
+int connect_to_server(int fsock, const char *ip_addr_str, int port, int max_retries);
 
 int can_recv(int fsock);
 
@@ -94,18 +80,21 @@ void print_conn(const node_conn_t *conn);
 typedef struct
 {
     int server_fd;
+    struct sockaddr_in address;
     node_conn_t *clients;
     size_t client_max;
     size_t client_count;
 }
 server_t;
 
-int open_server(server_t *s, int client_max);
+int init_server(server_t *s, int client_max);
 
-int close_server(server_t *s);
+int free_server(server_t *s);
 
 void print_server(const server_t *s);
 
-int spin_server(server_t *server, struct sockaddr_in *address);
+int spin_server(server_t *server);
+
+int host_localhost_server(server_t *server, int port, int client_max);
 
 #endif // SPROCKETS_COMMON_PROCS_H

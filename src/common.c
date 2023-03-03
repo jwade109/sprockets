@@ -65,12 +65,6 @@ void print_hexdump(char *seq, int len)
     printf("\n");
 }
 
-void print_packet(packet_t packet)
-{
-    printf("PACKET #%u %u.%06u %s 0x%02X",
-        packet.sno, packet.secs, packet.usecs, packet.data, packet.checksum);
-}
-
 int set_socket_reusable(int fsock)
 {
     int option = 1;
@@ -108,6 +102,14 @@ struct sockaddr_in get_peer_name(int fsock)
     unsigned int len = sizeof(ret);
     getpeername(fsock, (struct sockaddr*) &ret, &len);
     return ret;
+}
+
+char* get_peer_str(struct sockaddr_in addr)
+{
+    static char buffer[300];
+    sprintf(buffer, "%s:%d",
+        inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+    return buffer;
 }
 
 int send_message(int fsock, const char *msg, int len)
@@ -152,14 +154,13 @@ int send_packet(int fsock, const packet_t *packet)
     return ret;
 }
 
-int connect_to_server(int fsock, const char *ip_addr_str, int port)
+int connect_to_server(int fsock, const char *ip_addr_str, int port, int max_retries)
 {
     struct sockaddr_in addr = get_sockaddr(ip_addr_str, port);
 
     int retcode = -1;
     int retries = 0;
-    const int max_retries = 10000;
-    while (retcode < 0 && retries < max_retries)
+    while (retcode < 0 && retries <= max_retries)
     {
         if (!retries)
         {
@@ -168,13 +169,16 @@ int connect_to_server(int fsock, const char *ip_addr_str, int port)
         retcode = connect(fsock, (struct sockaddr*) &addr, sizeof(addr));
         if (retcode < 0)
         {
-            if (!retries)
+            if (!retries && max_retries)
             {
                 printf("Failed to connect: %s. "
                     "Will wait and retry for a little bit.\n",
                     strerror(errno));
             }
-            usleep(100000);
+            if (max_retries)
+            {
+                usleep(100000);
+            }
         }
         ++retries;
     }
@@ -316,7 +320,7 @@ void print_conn(const node_conn_t *conn)
     printf("\n");
 }
 
-int open_server(server_t *s, int client_max)
+int init_server(server_t *s, int client_max)
 {
     s->client_max = client_max;
     s->client_count = 0;
@@ -325,7 +329,7 @@ int open_server(server_t *s, int client_max)
     return 0;
 }
 
-int close_server(server_t *s)
+int free_server(server_t *s)
 {
     s->client_max = 0;
     s->client_count = 0;
@@ -336,25 +340,32 @@ int close_server(server_t *s)
 
 void print_server(const server_t *s)
 {
-    printf("fd=%d, clients=%zu/%zu\n", s->server_fd,
+    printf("%s %zu/%zu\n", get_peer_str(s->address),
         s->client_count, s->client_max);
     for (size_t i = 0; i < s->client_max; ++i)
     {
         const node_conn_t *nc = s->clients + i;
         if (nc->is_connected)
         {
-            print_conn(nc);
+            printf("#%zu: %s ", i,
+                get_peer_str(get_peer_name(nc->socket_fd)));
+            print_ring_buffer(&nc->inbox);
+            printf(" ");
+            print_ring_buffer(&nc->read_buffer);
+            printf("\n");
         }
     }
 }
 
-int spin_server(server_t *server, struct sockaddr_in *address)
+int spin_server(server_t *server)
 {
     // if something happened on the master socket, then it's an incoming connection
     if (can_recv(server->server_fd))
     {
-        int addrlen = sizeof(*address);
-        int new_socket = accept(server->server_fd, (struct sockaddr *) address, (socklen_t*) &addrlen);
+        struct sockaddr_in client_addr;
+        int addrlen = sizeof(client_addr);
+        int new_socket = accept(server->server_fd,
+            (struct sockaddr *) &client_addr, (socklen_t*) &addrlen);
 
         if (new_socket < 0)
         {
@@ -388,10 +399,8 @@ int spin_server(server_t *server, struct sockaddr_in *address)
             server->clients[i].socket_fd = new_socket;
             server->clients[i].is_connected = 1;
 
-            printf("New connection: cid=%zu, fd=%d, %s:%d\n",
-                i, new_socket,
-                inet_ntoa(address->sin_addr),
-                ntohs(address->sin_port));
+            printf("New connection: cid=%zu, fd=%d, %s\n",
+                i, new_socket, get_peer_str(get_peer_name(new_socket)));
 
             ++server->client_count;
 
@@ -408,11 +417,9 @@ int spin_server(server_t *server, struct sockaddr_in *address)
         if (ret == -1) // client disconnected
         {
             // client disconnected
-            struct sockaddr_in peer_addr = get_peer_name(conn->socket_fd);
-            printf("Client disconnected: cid=%zu, fd=%d, %s:%d\n",
-                i, conn->socket_fd,
-                inet_ntoa(peer_addr.sin_addr),
-                ntohs(peer_addr.sin_port));
+            printf("Client disconnected: cid=%zu, fd=%d, %s\n",
+                i, conn->socket_fd, get_peer_str(
+                    get_peer_name(conn->socket_fd)));
             free_conn(conn);
 
             --server->client_count;
@@ -420,4 +427,41 @@ int spin_server(server_t *server, struct sockaddr_in *address)
     }
 
     return 1;
+}
+
+int host_localhost_server(server_t *server, int port, int max_clients)
+{
+    server->server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server->server_fd == 0)
+    {
+        perror("socket failed");
+        return -1;
+    }
+
+    if (set_socket_reusable(server->server_fd) < 0)
+    {
+        perror("setsockopt");
+        return -1;
+    }
+
+    server->address.sin_family = AF_INET;
+    server->address.sin_addr.s_addr = INADDR_ANY;
+    server->address.sin_port = htons(port);
+
+    if (bind(server->server_fd, (const struct sockaddr *) &server->address,
+        sizeof(server->address)) < 0)
+    {
+        perror("bind failed");
+        return -1;
+    }
+    printf("Listening on %s:%d\n", inet_ntoa(server->address.sin_addr), port);
+
+    // try to specify maximum of 3 pending connections for the master socket
+    if (listen(server->server_fd, 3) < 0)
+    {
+        perror("listen");
+        return -1;
+    }
+
+    return 0;
 }
