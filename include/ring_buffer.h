@@ -5,12 +5,13 @@
 
 typedef struct
 {
-    char *data;
+    unsigned char *data;
     size_t wptr;
     size_t rptr;
     size_t capacity;
     size_t size;
     size_t elem_size;
+    size_t high_water_mark;
 }
 ring_buffer_t;
 
@@ -25,5 +26,7 @@ void assert_invariants(const ring_buffer_t *buffer);
 void ring_put(ring_buffer_t *buffer, const void *data);
 
 void* ring_get(ring_buffer_t *buffer);
+
+unsigned char* to_contiguous_buffer(const ring_buffer_t *buffer);
 
 #endif // SPROCKETS_RING_BUFFER_H

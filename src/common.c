@@ -48,21 +48,51 @@ packet_t get_stamped_packet(char *msg)
     return packet;
 }
 
-void print_hexdump(char *seq, int len)
+void print_hexdump(unsigned char *seq, size_t len)
 {
     if (!len)
     {
         return;
     }
-    for (int i = 0; i < len; ++i)
+
+    size_t i = 0, j = 0;
+
+    while (i < len)
     {
-        printf(" %02x", (uint8_t) seq[i]);
-        if ((i + 1) % 16 == 0)
+        printf("%06zu | ", i);
+        for (size_t r = 0; r < 16; ++r, ++i)
         {
-            printf("\n");
+            if (i < len)
+            {
+                printf("%02x ", seq[i]);
+            }
+            else
+            {
+                printf("   ");
+            }
         }
+        printf("| ");
+        for (size_t r = 0; r < 16; ++r, ++j)
+        {
+            if (j < len)
+            {
+                unsigned char c = seq[j];
+                if (c >= ' ' && c <= '~')
+                {
+                    printf("%c", c);
+                }
+                else
+                {
+                    printf(".");
+                }
+            }
+            else
+            {
+                printf(" ");
+            }
+        }
+        printf(" |\n");
     }
-    printf("\n");
 }
 
 int set_socket_reusable(int fsock)
@@ -264,26 +294,43 @@ int spin(node_conn_t *conn)
         }
     }
 
-    while (conn->read_buffer.size >= sizeof(packet_t))
-    {
-        char contig_buf[sizeof(packet_t)];
-        for (size_t i = 0; i < sizeof(packet_t); ++i)
-        {
-            contig_buf[i] = *(char *) ring_get(&conn->read_buffer);
-        }
-        packet_t packet;
-        if (cast_buffer_to_packet(&packet, contig_buf, sizeof(packet_t)) == 1)
-        {
-            ring_put(&conn->inbox, &packet);
-        }
-    }
+    // while (conn->read_buffer.size >= sizeof(packet_t))
+    // {
+    //     // possibly merge this with to_contiguous_buffer.
+    //     char contig_buf[sizeof(packet_t)];
+    //     for (size_t i = 0; i < sizeof(packet_t); ++i)
+    //     {
+    //         contig_buf[i] = *(char *) ring_get(&conn->read_buffer);
+    //     }
+    //     packet_t packet;
+    //     if (cast_buffer_to_packet(&packet, contig_buf, sizeof(packet_t)) == 1)
+    //     {
+    //         ring_put(&conn->inbox, &packet);
+    //     }
+    // }
 
     while (conn->outbox.size)
     {
-        packet_t *out = ring_get(&conn->outbox);
-        if (send_packet(conn->socket_fd, out))
+        unsigned char *out = ring_get(&conn->outbox);
+
+        for (size_t i = 0; i < sizeof(packet_t); ++i)
+        {
+            ring_put(&conn->write_buffer, out + i);
+        }
+
+        // if (send_packet(conn->socket_fd, out))
+        // {
+        //     printf("Failed to send.\n");
+        // }
+    }
+
+    for (size_t i = 0; i < 5 && conn->write_buffer.size; ++i)
+    {
+        const char *c = ring_get(&conn->write_buffer);
+        if (send_message(conn->socket_fd, c, 1))
         {
             printf("Failed to send.\n");
+            retcode = -1;
         }
     }
 
@@ -294,7 +341,8 @@ void init_conn(node_conn_t *conn)
 {
     conn->socket_fd = 0;
     conn->is_connected = 0;
-    init_buffer(&conn->read_buffer, sizeof(char), 1000);
+    init_buffer(&conn->read_buffer, sizeof(unsigned char), 500);
+    init_buffer(&conn->write_buffer, sizeof(unsigned char), 500);
     init_buffer(&conn->inbox, sizeof(packet_t), 100);
     init_buffer(&conn->outbox, sizeof(packet_t), 100);
 }
@@ -304,18 +352,20 @@ void free_conn(node_conn_t *conn)
     conn->socket_fd = 0;
     conn->is_connected = 0;
     free_buffer(&conn->read_buffer);
+    free_buffer(&conn->write_buffer);
     free_buffer(&conn->inbox);
     free_buffer(&conn->outbox);
 }
 
 void print_conn(const node_conn_t *conn)
 {
-    printf("fd=%d\n", conn->socket_fd);
-    printf(  "rbuf: ");
+    printf("%s r: ", get_peer_str(get_peer_name(conn->socket_fd)));
     print_ring_buffer(&conn->read_buffer);
-    printf("\nin:   ");
+    printf(" w: ");
+    print_ring_buffer(&conn->write_buffer);
+    printf(" i: ");
     print_ring_buffer(&conn->inbox);
-    printf("\nout:  ");
+    printf(" o: ");
     print_ring_buffer(&conn->outbox);
     printf("\n");
 }
@@ -336,25 +386,6 @@ int free_server(server_t *s)
     s->server_fd = 0;
     free(s->clients);
     return 0;
-}
-
-void print_server(const server_t *s)
-{
-    printf("%s %zu/%zu\n", get_peer_str(s->address),
-        s->client_count, s->client_max);
-    for (size_t i = 0; i < s->client_max; ++i)
-    {
-        const node_conn_t *nc = s->clients + i;
-        if (nc->is_connected)
-        {
-            printf("#%zu: %s ", i,
-                get_peer_str(get_peer_name(nc->socket_fd)));
-            print_ring_buffer(&nc->inbox);
-            printf(" ");
-            print_ring_buffer(&nc->read_buffer);
-            printf("\n");
-        }
-    }
 }
 
 int spin_server(server_t *server)
@@ -381,12 +412,6 @@ int spin_server(server_t *server)
             return 1;
         }
 
-        if (send_string(new_socket, "Hello, welcome to Arby's\n"))
-        {
-            perror("send");
-            return -1;
-        }
-
         // add new socket to array of sockets
         for (size_t i = 0; i < server->client_max; i++)
         {
@@ -398,6 +423,13 @@ int spin_server(server_t *server)
             init_conn(&server->clients[i]);
             server->clients[i].socket_fd = new_socket;
             server->clients[i].is_connected = 1;
+
+            const char *greeting = "Hello, welcome to Arby's\n";
+
+            for (size_t j = 0; j < strlen(greeting); ++j)
+            {
+                ring_put(&server->clients[i].write_buffer, greeting + j);
+            }
 
             printf("New connection: cid=%zu, fd=%d, %s\n",
                 i, new_socket, get_peer_str(get_peer_name(new_socket)));
@@ -429,7 +461,7 @@ int spin_server(server_t *server)
     return 1;
 }
 
-int host_localhost_server(server_t *server, int port, int max_clients)
+int host_localhost_server(server_t *server, int port)
 {
     server->server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server->server_fd == 0)

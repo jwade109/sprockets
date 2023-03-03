@@ -12,6 +12,7 @@ int init_buffer(ring_buffer_t *buffer, size_t elem_size, size_t capacity)
     buffer->capacity = capacity;
     buffer->size = 0;
     buffer->elem_size = elem_size;
+    buffer->high_water_mark = 0;
     // TODO make this allocate from an arena
     buffer->data = malloc(elem_size * capacity);
     if (!buffer->data)
@@ -29,8 +30,8 @@ void free_buffer(ring_buffer_t *buffer)
 
 void print_ring_buffer(const ring_buffer_t *b)
 {
-    printf("[%zu/%zu r=%zu w=%zu]",
-        b->size, b->capacity, b->rptr, b->wptr);
+    printf("[%zu/%zu r=%zu w=%zu h=%zu]",
+        b->size, b->capacity, b->rptr, b->wptr, b->high_water_mark);
 }
 
 void assert_invariants(const ring_buffer_t *buffer)
@@ -61,6 +62,7 @@ void ring_put(ring_buffer_t *buffer, const void *data)
         buffer->size = buffer->capacity;
         buffer->rptr = buffer->wptr;
     }
+    ++buffer->high_water_mark;
     // assert_invariants(buffer);
 }
 
@@ -75,5 +77,27 @@ void* ring_get(ring_buffer_t *buffer)
     buffer->rptr %= buffer->capacity;
     --buffer->size;
     // assert_invariants(buffer);
+    return ret;
+}
+
+unsigned char* to_contiguous_buffer(const ring_buffer_t *buffer)
+{
+    if (!buffer->size)
+    {
+        return 0;
+    }
+
+    unsigned char *ret = malloc(buffer->size);
+    if (!ret)
+    {
+        return 0;
+    }
+
+    for (size_t i = 0; i < buffer->size; ++i)
+    {
+        size_t p = (buffer->rptr + i) % buffer->capacity;
+        ret[i] = buffer->data[p];
+    }
+
     return ret;
 }

@@ -26,7 +26,7 @@ uint8_t array_sum(const char *array, size_t len);
 
 packet_t get_stamped_packet(char *msg);
 
-void print_hexdump(char *seq, int len);
+void print_hexdump(unsigned char *seq, size_t len);
 
 int set_socket_reusable(int fsock);
 
@@ -59,6 +59,7 @@ typedef struct
     int socket_fd;
     int is_connected;
     ring_buffer_t read_buffer;
+    ring_buffer_t write_buffer;
     ring_buffer_t inbox;
     ring_buffer_t outbox;
 }
@@ -91,10 +92,8 @@ int init_server(server_t *s, int client_max);
 
 int free_server(server_t *s);
 
-void print_server(const server_t *s);
-
 int spin_server(server_t *server);
 
-int host_localhost_server(server_t *server, int port, int client_max);
+int host_localhost_server(server_t *server, int port);
 
 #endif // SPROCKETS_COMMON_PROCS_H

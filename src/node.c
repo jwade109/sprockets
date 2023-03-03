@@ -73,9 +73,16 @@ int connect_to_upstream(node_conn_t *conn, const char *ipaddr, int port)
     return 0;
 }
 
+void print_ring_dump(const ring_buffer_t *buffer)
+{
+    unsigned char *contig = to_contiguous_buffer(buffer);
+    print_hexdump(contig, buffer->size);
+    free(contig);
+}
+
 void send_packet_at_random(node_conn_t *conn)
 {
-    if (1.0 * rand() / RAND_MAX < 0.001)
+    if (1.0 * rand() / RAND_MAX < 0.01)
     {
         const int len = 200;
         char buffer[len];
@@ -115,7 +122,6 @@ int main(int argc, char **argv)
     }
 
     srand(time(0));
-    // signal(SIGPIPE, SIG_IGN); // suppress SIGPIPE raised by socket write errors
 
     const char *addrup = argv[1];
     const int portup = atoi(argv[2]);
@@ -140,35 +146,50 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    if (host_localhost_server(&server, portdown, 3) < 0)
+    if (host_localhost_server(&server, portdown) < 0)
     {
         perror("failed to init server");
         return -1;
     }
 
-    size_t iter = 0;
-
     while (1)
     {
+        send_packet_at_random(&conn);
+        for (size_t i = 0; i < server.client_count; ++i)
+        {
+            node_conn_t *nc = server.clients + i;
+            if (!nc->is_connected)
+            {
+                continue;
+            }
+            send_packet_at_random(nc);
+            printf("D ");
+            print_conn(nc);
+            print_ring_dump(&nc->read_buffer);
+        }
+
         if (spin(&conn) < 0)
         {
             perror("upstream disconnected");
             return 1;
         }
+
+        if (conn.is_connected)
+        {
+            printf("U ");
+            print_conn(&conn);
+            print_ring_dump(&conn.read_buffer);
+        }
+
         packet_t *p;
         while ((p = ring_get(&conn.inbox)))
         {
             // do stuff with p
         }
 
-        send_packet_at_random(&conn);
 
         spin_server(&server);
-        // if (iter++ % 1000 == 0)
-        {
-            print_server(&server);
-        }
-        usleep(10000);
+        usleep(100000);
     }
 
     printf("Done.\n");
