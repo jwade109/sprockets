@@ -10,7 +10,7 @@ MSG_OBJECTS=$(addsuffix .o, $(addprefix build/, ${MESSAGES}))
 MSG_HEADERS=$(addsuffix .h, $(addprefix include/, ${MESSAGES}))
 
 all:
-	@make --no-print-directory -j8 node multiserver msggen messages
+	@make --no-print-directory -j8 node msggen messages
 
 build/%.o: src/%.c ${LIB_HEADERS}
 	@mkdir -p build/
@@ -19,9 +19,6 @@ build/%.o: src/%.c ${LIB_HEADERS}
 node: ${LIB_OBJECTS} ${MSG_OBJECTS} build/node.o
 	gcc ${LIB_OBJECTS} ${MSG_OBJECTS} build/node.o -o node
 
-multiserver: ${LIB_OBJECTS} ${MSG_OBJECTS} build/multiserver.o
-	gcc ${LIB_OBJECTS} ${MSG_OBJECTS} build/multiserver.o -o multiserver -lm
-
 msggen: ${LIB_OBJECTS} build/msggen.o
 	gcc ${LIB_OBJECTS} build/msggen.o -o msggen
 
@@ -29,4 +26,4 @@ messages: msggen
 	./msggen msg/packet.msg include/packet.h src/packet.c
 
 clean:
-	rm -rf build/ node multiserver msggen
+	rm -rf build/ node msggen
