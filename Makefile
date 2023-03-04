@@ -9,25 +9,26 @@ MESSAGES=packet timestamp vec3
 MSG_OBJECTS=$(addsuffix .o, $(addprefix build/msg/,   ${MESSAGES}))
 MSG_HEADERS=$(addsuffix .h, $(addprefix include/msg/, ${MESSAGES}))
 
+all: node
+
 messages: ${MSG_OBJECTS}
 
-all:
-	@make --no-print-directory -j8 messages node
-
-build/%.o: src/%.c ${LIB_HEADERS}
+build/%.o: src/%.c ${LIB_HEADERS} messages
 	@mkdir -p build/
 	gcc src/$*.c ${C_FLAGS} -c -o build/$*.o -I include/
 
 build/msg/%.o: msggen msg/%.msg
+	@echo " -- MSG[$*] BUILD --"
 	@mkdir -p build/msg/ src/msg/ include/msg/
 	./msggen msg/$*.msg include/msg/$*.h src/msg/$*.c $*
 	gcc src/msg/$*.c ${C_FLAGS} -c -o build/msg/$*.o -I include/
+	@echo " -- MSG[$*] FINISHED --"
 
 node: ${MSG_OBJECTS} ${LIB_OBJECTS} build/node.o
 	gcc ${LIB_OBJECTS} ${MSG_OBJECTS} build/node.o -o node
 
-msggen: build/dynamic_array.o build/msggen.o
-	gcc build/dynamic_array.o build/msggen.o -o msggen
+msggen: src/dynamic_array.c src/msggen.c include/dynamic_array.h
+	gcc src/dynamic_array.c src/msggen.c -I include/ -o msggen
 
 clean:
 	rm -rf build/ node msggen include/msg/ src/msg/
