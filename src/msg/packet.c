@@ -12,6 +12,7 @@
 
 #include <msg/packet.h>
 #include <stdio.h>
+#include <string.h>
 
 void print_packet(const packet_t *m)
 {
@@ -26,3 +27,16 @@ void print_packet(const packet_t *m)
     printf("data=%s ", m->data);
     printf("\n");
 }
+
+void serialize_packet(const packet_t *m, uint8_t *dst)
+{
+    memcpy(dst, m, sizeof(packet_t));
+}
+
+int deserialize_packet(packet_t *dst, const uint8_t *buffer, size_t len)
+{
+    if (len != sizeof(packet_t)) { return -1; }
+    memcpy(dst, buffer, len);
+    return 0;
+}
+

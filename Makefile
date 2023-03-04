@@ -1,5 +1,8 @@
 
-C_FLAGS=-std=gnu11 -Wfatal-errors -Wdouble-promotion -Wfloat-conversion -Werror=implicit-function-declaration -Werror=format -Wall -Wextra -Wpedantic -g
+C_FLAGS=-std=gnu11 -Wfatal-errors -Wdouble-promotion -Wfloat-conversion \
+	-Werror=implicit-function-declaration -Werror=format \
+	-Werror=return-type -Werror=format-extra-args \
+	-Wall -Wextra -Wpedantic -g
 
 LIB_COMPILATION_UNITS=common ring_buffer dynamic_array
 LIB_OBJECTS=$(addsuffix .o, $(addprefix build/, ${LIB_COMPILATION_UNITS}))

@@ -7,6 +7,7 @@
 
 #include <msg/vec3.h>
 #include <stdio.h>
+#include <string.h>
 
 void print_vec3(const vec3_t *m)
 {
@@ -16,3 +17,16 @@ void print_vec3(const vec3_t *m)
     printf("z=%lf ", (double) m->z);
     printf("\n");
 }
+
+void serialize_vec3(const vec3_t *m, uint8_t *dst)
+{
+    memcpy(dst, m, sizeof(vec3_t));
+}
+
+int deserialize_vec3(vec3_t *dst, const uint8_t *buffer, size_t len)
+{
+    if (len != sizeof(vec3_t)) { return -1; }
+    memcpy(dst, buffer, len);
+    return 0;
+}
+

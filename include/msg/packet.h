@@ -14,6 +14,7 @@
 #define SPROCKETS_AUTOGEN_MESSAGE_packet_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #pragma pack(push, 1)
 typedef struct
@@ -32,4 +33,9 @@ packet_t;
 
 void print_packet(const packet_t *m);
 
+void serialize_packet(const packet_t *m, uint8_t *dst);
+
+int deserialize_packet(packet_t *dst, const uint8_t *buffer, size_t len);
+
 #endif // SPROCKETS_AUTOGEN_MESSAGE_packet_H
+

@@ -7,10 +7,13 @@
 
 #include <ring_buffer.h>
 #include <msg/packet.h>
+#include <msg/timestamp.h>
+#include <msg/vec3.h>
 
 #define PACKET_DATA_LEN 128
 #define PACKET_PREAMBLE 0x20F7
 
+// TODO move these to message generation
 static_assert(sizeof(packet_t) == 149, "Packet size is not as expected");
 static_assert(sizeof(packet_t) == 21 + PACKET_DATA_LEN, "Packet size is not as expected");
 static_assert(offsetof(packet_t, preamble) == 0, "packet_t::secs offset");

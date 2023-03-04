@@ -127,6 +127,7 @@ void emit_header(FILE *out, const char *source_msg_file,
         message_type_name, message_type_name);
 
     emit_include_directive(out, "stdint.h");
+    emit_include_directive(out, "stddef.h");
 
     fprintf(out, "\n#pragma pack(push, 1)\ntypedef struct\n{\n");
 
@@ -148,10 +149,15 @@ void emit_header(FILE *out, const char *source_msg_file,
     }
 
     fprintf(out, "}\n%s_t;\n#pragma pack(pop)\n", message_type_name);
-    fprintf(out, "\nvoid print_%s(const %s_t *m);\n\n",
+
+    fprintf(out, "\nvoid print_%s(const %s_t *m);\n",
+        message_type_name, message_type_name);
+    fprintf(out, "\nvoid serialize_%s(const %s_t *m, uint8_t *dst);\n",
+        message_type_name, message_type_name);
+    fprintf(out, "\nint deserialize_%s(%s_t *dst, const uint8_t *buffer, size_t len);\n\n",
         message_type_name, message_type_name);
 
-    fprintf(out, "#endif // SPROCKETS_AUTOGEN_MESSAGE_%s_H\n", message_type_name);
+    fprintf(out, "#endif // SPROCKETS_AUTOGEN_MESSAGE_%s_H\n\n", message_type_name);
 }
 
 void emit_source(FILE *out, const char *source_msg_file,
@@ -164,6 +170,7 @@ void emit_source(FILE *out, const char *source_msg_file,
     sprintf(buffer, "msg/%s.h", message_type_name);
     emit_include_directive(out, buffer);
     emit_include_directive(out, "stdio.h");
+    emit_include_directive(out, "string.h");
 
     fprintf(out, "\nvoid print_%s(const %s_t *m)\n{\n",
         message_type_name, message_type_name);
@@ -189,6 +196,19 @@ void emit_source(FILE *out, const char *source_msg_file,
     }
 
     fprintf(out, "    printf(\"\\n\");\n}\n");
+
+    fprintf(out, "\nvoid serialize_%s(const %s_t *m, uint8_t *dst)\n{\n",
+        message_type_name, message_type_name);
+    fprintf(out, "    memcpy(dst, m, sizeof(%s_t));\n", message_type_name);
+    fprintf(out, "}\n");
+
+    fprintf(out, "\nint deserialize_%s(%s_t *dst, const uint8_t *buffer, size_t len)\n{\n",
+        message_type_name, message_type_name);
+    fprintf(out, "    if (len != sizeof(%s_t)) { return -1; }\n", message_type_name);
+    fprintf(out, "    memcpy(dst, buffer, len);\n");
+    fprintf(out, "    return 0;\n");
+    fprintf(out, "}\n\n");
+
 }
 
 int main(int argc, char **argv)

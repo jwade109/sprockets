@@ -8,6 +8,7 @@
 #define SPROCKETS_AUTOGEN_MESSAGE_timestamp_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #pragma pack(push, 1)
 typedef struct
@@ -20,4 +21,9 @@ timestamp_t;
 
 void print_timestamp(const timestamp_t *m);
 
+void serialize_timestamp(const timestamp_t *m, uint8_t *dst);
+
+int deserialize_timestamp(timestamp_t *dst, const uint8_t *buffer, size_t len);
+
 #endif // SPROCKETS_AUTOGEN_MESSAGE_timestamp_H
+

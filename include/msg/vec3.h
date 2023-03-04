@@ -9,6 +9,7 @@
 #define SPROCKETS_AUTOGEN_MESSAGE_vec3_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #pragma pack(push, 1)
 typedef struct
@@ -22,4 +23,9 @@ vec3_t;
 
 void print_vec3(const vec3_t *m);
 
+void serialize_vec3(const vec3_t *m, uint8_t *dst);
+
+int deserialize_vec3(vec3_t *dst, const uint8_t *buffer, size_t len);
+
 #endif // SPROCKETS_AUTOGEN_MESSAGE_vec3_H
+

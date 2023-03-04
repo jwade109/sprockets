@@ -6,6 +6,7 @@
 
 #include <msg/timestamp.h>
 #include <stdio.h>
+#include <string.h>
 
 void print_timestamp(const timestamp_t *m)
 {
@@ -14,3 +15,16 @@ void print_timestamp(const timestamp_t *m)
     printf("usecs=%d ", m->usecs);
     printf("\n");
 }
+
+void serialize_timestamp(const timestamp_t *m, uint8_t *dst)
+{
+    memcpy(dst, m, sizeof(timestamp_t));
+}
+
+int deserialize_timestamp(timestamp_t *dst, const uint8_t *buffer, size_t len)
+{
+    if (len != sizeof(timestamp_t)) { return -1; }
+    memcpy(dst, buffer, len);
+    return 0;
+}
+
