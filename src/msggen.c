@@ -49,7 +49,7 @@ const char *field_printf_specifiers[NUM_FIELD_TYPES] = {
     "d",
     "d",
     "d",
-    "d",
+    "lf",
     "s"
 };
 
@@ -161,7 +161,7 @@ void emit_source(FILE *out, const char *source_msg_file,
     emit_autogen_header(out, source_msg_file, fields);
 
     char buffer[100];
-    sprintf(buffer, "%s.h", message_type_name);
+    sprintf(buffer, "msg/%s.h", message_type_name);
     emit_include_directive(out, buffer);
     emit_include_directive(out, "stdio.h");
 
@@ -172,10 +172,20 @@ void emit_source(FILE *out, const char *source_msg_file,
     for (size_t i = 0; i < fields->size; ++i)
     {
         message_field_t *field = array_get(fields, i);
-        fprintf(out, "    printf(\"%s=%%%s \", m->%s);\n",
-            field->name,
-            field_printf_specifiers[field->type],
-            field->name);
+        if (field->type == F32)
+        {
+            fprintf(out, "    printf(\"%s=%%%s \", (double) m->%s);\n",
+                field->name,
+                field_printf_specifiers[field->type],
+                field->name);
+        }
+        else
+        {
+            fprintf(out, "    printf(\"%s=%%%s \", m->%s);\n",
+                field->name,
+                field_printf_specifiers[field->type],
+                field->name);
+        }
     }
 
     fprintf(out, "    printf(\"\\n\");\n}\n");
@@ -183,9 +193,9 @@ void emit_source(FILE *out, const char *source_msg_file,
 
 int main(int argc, char **argv)
 {
-    if (argc < 4)
+    if (argc < 5)
     {
-        printf("usage: %s [in.msg] [out.h] [out.c]\n", argv[0]);
+        printf("usage: %s [in.msg] [out.h] [out.c] [name]\n", argv[0]);
         return 1;
     }
 
@@ -194,20 +204,17 @@ int main(int argc, char **argv)
 
     init_array(&fields, sizeof(message_field_t), 200);
 
-    char *infile = argv[1];
+    const char *infile = argv[1];
     const char *out_header = argv[2];
     const char *out_source = argv[3];
+    const char *message_type_name = argv[4];
+
+    printf("Message definition: %s\n", infile);
+    printf("Header: %s\n", out_header);
+    printf("Source: %s\n", out_source);
+    printf("Message name: %s\n", message_type_name);
 
     FILE *in = fopen(infile, "r");
-
-    char message_type_name[100];
-    size_t fn_start, fn_end;
-    get_filename(infile, &fn_start, &fn_end);
-    assert(fn_end - fn_start < sizeof(message_type_name));
-    memcpy(message_type_name, infile + fn_start, fn_end - fn_start);
-    message_type_name[fn_end - fn_start + 1] = 0;
-
-    printf("Message name: %s\n", message_type_name);
 
     if (!in)
     {

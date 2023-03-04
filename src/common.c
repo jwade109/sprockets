@@ -14,7 +14,7 @@
 #include <unistd.h>
 #include <ring_buffer.h>
 
-#include "common.h"
+#include <common.h>
 
 uint8_t array_sum(const char *array, size_t len)
 {

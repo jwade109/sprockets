@@ -5,25 +5,29 @@ LIB_COMPILATION_UNITS=common ring_buffer dynamic_array
 LIB_OBJECTS=$(addsuffix .o, $(addprefix build/, ${LIB_COMPILATION_UNITS}))
 LIB_HEADERS=include/common.h include/ring_buffer.h
 
-MESSAGES=packet
-MSG_OBJECTS=$(addsuffix .o, $(addprefix build/, ${MESSAGES}))
-MSG_HEADERS=$(addsuffix .h, $(addprefix include/, ${MESSAGES}))
+MESSAGES=packet timestamp vec3
+MSG_OBJECTS=$(addsuffix .o, $(addprefix build/msg/,   ${MESSAGES}))
+MSG_HEADERS=$(addsuffix .h, $(addprefix include/msg/, ${MESSAGES}))
+
+messages: ${MSG_OBJECTS}
 
 all:
-	@make --no-print-directory -j8 node msggen messages
+	@make --no-print-directory -j8 messages node
 
 build/%.o: src/%.c ${LIB_HEADERS}
 	@mkdir -p build/
-	gcc src/$*.c ${C_FLAGS} -c -o build/$*.o -Iinclude/
+	gcc src/$*.c ${C_FLAGS} -c -o build/$*.o -I include/
 
-node: ${LIB_OBJECTS} ${MSG_OBJECTS} build/node.o
+build/msg/%.o: msggen msg/%.msg
+	@mkdir -p build/msg/ src/msg/ include/msg/
+	./msggen msg/$*.msg include/msg/$*.h src/msg/$*.c $*
+	gcc src/msg/$*.c ${C_FLAGS} -c -o build/msg/$*.o -I include/
+
+node: ${MSG_OBJECTS} ${LIB_OBJECTS} build/node.o
 	gcc ${LIB_OBJECTS} ${MSG_OBJECTS} build/node.o -o node
 
-msggen: ${LIB_OBJECTS} build/msggen.o
-	gcc ${LIB_OBJECTS} build/msggen.o -o msggen
-
-messages: msggen
-	./msggen msg/packet.msg include/packet.h src/packet.c
+msggen: build/dynamic_array.o build/msggen.o
+	gcc build/dynamic_array.o build/msggen.o -o msggen
 
 clean:
-	rm -rf build/ node msggen
+	rm -rf build/ node msggen include/msg/ src/msg/

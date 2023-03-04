@@ -10,7 +10,7 @@
 // u8 checksum
 // str data
 
-#include <packet.h>
+#include <msg/packet.h>
 #include <stdio.h>
 
 void print_packet(const packet_t *m)

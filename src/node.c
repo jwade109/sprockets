@@ -8,7 +8,7 @@
 #include <signal.h>
 #include <arpa/inet.h>
 
-#include "common.h"
+#include <common.h>
 
 typedef struct timeval timeval;
 

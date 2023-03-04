@@ -5,8 +5,8 @@
 #include <assert.h>
 #include <netinet/in.h>
 
-#include "ring_buffer.h"
-#include <packet.h>
+#include <ring_buffer.h>
+#include <msg/packet.h>
 
 #define PACKET_DATA_LEN 128
 #define PACKET_PREAMBLE 0x20F7
