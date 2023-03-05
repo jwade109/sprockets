@@ -4,7 +4,7 @@ C_FLAGS=-std=gnu11 -Wfatal-errors -Wdouble-promotion -Wfloat-conversion \
 	-Werror=return-type -Werror=format-extra-args \
 	-Wall -Wextra -Wpedantic -g
 
-LIB_COMPILATION_UNITS=common ring_buffer dynamic_array
+LIB_COMPILATION_UNITS=common ring_buffer dynamic_array datetime
 LIB_OBJECTS=$(addsuffix .o, $(addprefix build/, ${LIB_COMPILATION_UNITS}))
 LIB_HEADERS=include/common.h include/ring_buffer.h
 

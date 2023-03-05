@@ -3,44 +3,21 @@
 #include <time.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/time.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <arpa/inet.h>
 
 #include <common.h>
-
-typedef struct timeval timeval;
-
-// computes t2 - t1
-timeval get_timedelta(const timeval *t1, const timeval *t2)
-{
-    timeval dt;
-    dt.tv_sec = t2->tv_sec - t1->tv_sec;
-    dt.tv_usec = t2->tv_usec - t1->tv_usec;
-    return dt;
-}
-
-int32_t to_usecs(const timeval *t)
-{
-    return t->tv_sec * 1000000 + t->tv_usec;
-}
-
-timeval current_time()
-{
-    timeval ret;
-    gettimeofday(&ret, 0);
-    return ret;
-}
+#include <datetime.h>
 
 void user_got_a_packet(const packet_t *p)
 {
-    timeval tp;
+    datetime tp;
     tp.tv_sec = p->secs;
     tp.tv_usec = p->usecs;
 
-    timeval now = current_time();
-    timeval delta_time = get_timedelta(&tp, &now);
+    datetime now = current_time();
+    datetime delta_time = get_timedelta(&tp, &now);
     int32_t dt = to_usecs(&delta_time);
 
     printf("[RECV] ");
@@ -80,23 +57,21 @@ void print_ring_dump(const ring_buffer_t *buffer)
     free(contig);
 }
 
-void send_packet_at_random(node_conn_t *conn)
+void send_test_packet(node_conn_t *conn)
 {
-    if (1.0 * rand() / RAND_MAX < 0.005)
+    const int len = 200;
+    char buffer[len];
     {
-        const int len = 200;
-        char buffer[len];
-        {
-            time_t rawtime;
-            struct tm *info;
-            time(&rawtime);
-            info = localtime(&rawtime);
-            strftime(buffer, len, "%A, %B %d %FT%TZ", info);
-        }
-
-        packet_t out = get_stamped_packet(buffer);
-        ring_put(&conn->outbox, &out);
+        time_t rawtime;
+        struct tm *info;
+        time(&rawtime);
+        info = localtime(&rawtime);
+        strftime(buffer, len, "%A, %B %d %FT%TZ", info);
     }
+
+    packet_t out = get_stamped_packet(buffer);
+    ring_put(&conn->outbox, &out);
+    // print_hexdump((unsigned char*) &out, sizeof(packet_t));
 }
 
 void send_random_ascii_bytes(node_conn_t *conn)
@@ -133,6 +108,21 @@ void send_plaintext_date(node_conn_t *conn)
             ring_put(&conn->write_buffer, buffer + i);
         }
     }
+}
+
+node_conn_t** get_all_connections(node_conn_t *up, server_t *down)
+{
+    node_conn_t** conns = malloc((down->client_max + 1) * sizeof(node_conn_t*));
+    if (!conns)
+    {
+        return 0;
+    }
+    conns[0] = up;
+    for (size_t i = 0; i < down->client_max; ++i)
+    {
+        conns[i + 1] = down->clients + i;
+    }
+    return conns;
 }
 
 void print_help_info(const char *argv0)
@@ -190,51 +180,61 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    size_t iter = 0;
+    rate_limit one_hertz, ten_hertz, hundred_hertz;
+    init_rate_limit(&one_hertz, 1);
+    init_rate_limit(&ten_hertz, 10);
+    init_rate_limit(&hundred_hertz, 100);
+
+    node_conn_t** conns = get_all_connections(&upstream, &server);
 
     while (1)
     {
-        ++iter;
-        node_conn_t* connections[max_clients + 1];
-        connections[0] = &upstream;
-        for (size_t i = 0; i < max_clients; ++i)
+        datetime now = current_time();
+
+        if (poll_rate(&one_hertz, &now))
         {
-            connections[i + 1] = server.clients + i;
+            for (size_t i = 0; i < max_clients + 1; ++i)
+            {
+                node_conn_t *nc = conns[i];
+                if (!nc->is_connected)
+                {
+                    continue;
+                }
+                send_test_packet(nc);
+            }
         }
 
-        // loop for every connection, both down and upstream
-        for (size_t i = 0; i < max_clients + 1; ++i)
+        if (poll_rate(&ten_hertz, &now))
         {
-            node_conn_t *nc = connections[i];
-            if (!nc->is_connected)
+            for (size_t i = 0; i < max_clients + 1; ++i)
             {
-                continue;
-            }
-            send_packet_at_random(nc);
-            // send_random_ascii_bytes(nc);
-            // send_plaintext_date(nc);
-            if (iter % 100 == 0)
-            {
+                node_conn_t *nc = conns[i];
+                if (!nc->is_connected)
+                {
+                    continue;
+                }
                 if (i == 0)
                 {
                     printf("U  ");
                 }
                 else
                 {
-                    printf("D%zu ", i - 1);
+                    printf("D%zu ", i);
                 }
                 print_conn(nc);
             }
         }
 
-        if (spin_conn(&upstream) < 0)
+        if (poll_rate(&hundred_hertz, &now))
         {
-            perror("upstream disconnected");
-            return 1;
-        }
+            if (spin_conn(&upstream) < 0)
+            {
+                perror("upstream disconnected");
+                return 1;
+            }
 
-        spin_server(&server);
-        usleep(1000);
+            spin_server(&server);
+        }
     }
 
     printf("Done.\n");

@@ -36,7 +36,7 @@ void print_ring_buffer(const ring_buffer_t *b)
 
 void reset_ptrs_if_possible(ring_buffer_t *b)
 {
-    int reset = b->rptr == b->wptr && !b->size;
+    int reset = !b->size;
     b->rptr -= b->rptr * reset;
     b->wptr -= b->wptr * reset;
 }

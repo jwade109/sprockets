@@ -128,7 +128,7 @@ int get_input_stdin(const char *prompt, char *buffer, size_t bufsize)
 
 struct sockaddr_in get_peer_name(int fsock)
 {
-    struct sockaddr_in ret;
+    struct sockaddr_in ret = {0};
     unsigned int len = sizeof(ret);
     getpeername(fsock, (struct sockaddr*) &ret, &len);
     return ret;
@@ -329,8 +329,6 @@ int spin_conn(node_conn_t *conn)
         }
     }
 
-    const int AUTOPOPULATE_PACKETS_INTO_INBOX = 1;
-
     packet_t packet;
     while (pop_packet_if_exists(&conn->read_buffer, &packet) >= 0)
     {
@@ -473,9 +471,8 @@ int spin_server(server_t *server)
         if (ret == -1) // client disconnected
         {
             // client disconnected
-            printf("Client disconnected: cid=%zu, fd=%d, %s\n",
-                i, conn->socket_fd, get_peer_str(
-                    get_peer_name(conn->socket_fd)));
+            printf("Client disconnected: cid=%zu, fd=%d\n",
+                i, conn->socket_fd);
             free_conn(conn);
 
             --server->client_count;
