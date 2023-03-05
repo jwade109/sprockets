@@ -140,7 +140,7 @@ void emit_header(FILE *out, const char *source_msg_file,
 
         if (type == STR)
         {
-            fprintf(out, "    char %s[128];\n", name);
+            fprintf(out, "    char %s[256];\n", name);
         }
         else
         {

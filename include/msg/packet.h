@@ -26,7 +26,7 @@ typedef struct
     uint32_t datalen;
     uint16_t datatype;
     uint8_t checksum;
-    char data[128];
+    char data[256];
 }
 packet_t;
 #pragma pack(pop)

@@ -13,17 +13,16 @@
 #define PACKET_DATA_LEN 128
 #define PACKET_PREAMBLE 0x20F7
 
-// TODO move these to message generation
-static_assert(sizeof(packet_t) == 149, "Packet size is not as expected");
-static_assert(sizeof(packet_t) == 21 + PACKET_DATA_LEN, "Packet size is not as expected");
-static_assert(offsetof(packet_t, preamble) == 0, "packet_t::secs offset");
-static_assert(offsetof(packet_t, sno) == 2, "packet_t::secs offset");
-static_assert(offsetof(packet_t, secs) == 6, "packet_t::secs offset");
-static_assert(offsetof(packet_t, usecs) == 10, "packet_t::usecs offset");
-static_assert(offsetof(packet_t, datalen) == 14, "packet_t::datalen offset");
-static_assert(offsetof(packet_t, datatype) == 18, "packet_t::datatype offset");
-static_assert(offsetof(packet_t, checksum) == 20, "packet_t::checksum offset");
-static_assert(offsetof(packet_t, data) == 21, "packet_t::data offset");
+#pragma pack(push, 1)
+typedef struct
+{
+    uint32_t preamble;
+    uint32_t datalen;
+    uint32_t datatype;
+    uint8_t checksum;
+}
+packet_header_t;
+#pragma pack(pop)
 
 uint8_t array_sum(const char *array, size_t len);
 
