@@ -23,6 +23,8 @@ vec3_t;
 
 void print_vec3(const vec3_t *m);
 
+vec3_t new_vec3();
+
 void serialize_vec3(const vec3_t *m, uint8_t *dst);
 
 int deserialize_vec3(vec3_t *dst, const uint8_t *buffer, size_t len);

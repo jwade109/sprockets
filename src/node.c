@@ -82,7 +82,7 @@ void print_ring_dump(const ring_buffer_t *buffer)
 
 void send_packet_at_random(node_conn_t *conn)
 {
-    if (1.0 * rand() / RAND_MAX < 0.1)
+    if (1.0 * rand() / RAND_MAX < 0.005)
     {
         const int len = 200;
         char buffer[len];
@@ -111,6 +111,26 @@ void send_random_ascii_bytes(node_conn_t *conn)
         {
             unsigned char c = rand() % (end - start) + start;
             ring_put(&conn->write_buffer, &c);
+        }
+    }
+}
+
+void send_plaintext_date(node_conn_t *conn)
+{
+    if (1.0 * rand() / RAND_MAX < 0.01)
+    {
+        const int len = 400;
+        char buffer[len];
+        {
+            time_t rawtime;
+            struct tm *info;
+            time(&rawtime);
+            info = localtime(&rawtime);
+            strftime(buffer, len, "Hello, welcome to Arby's. %A, %B %d %FT%TZ\n", info);
+        }
+        for (size_t i = 0; i < strlen(buffer); ++i)
+        {
+            ring_put(&conn->write_buffer, buffer + i);
         }
     }
 }
@@ -190,8 +210,9 @@ int main(int argc, char **argv)
             {
                 continue;
             }
-            // send_packet_at_random(nc);
-            send_random_ascii_bytes(nc);
+            send_packet_at_random(nc);
+            // send_random_ascii_bytes(nc);
+            // send_plaintext_date(nc);
             if (iter % 100 == 0)
             {
                 if (i == 0)
@@ -204,19 +225,12 @@ int main(int argc, char **argv)
                 }
                 print_conn(nc);
             }
-            // print_ring_dump(&nc->read_buffer);
         }
 
         if (spin_conn(&upstream) < 0)
         {
             perror("upstream disconnected");
             return 1;
-        }
-
-        packet_t *p;
-        while ((p = ring_get(&upstream.inbox)))
-        {
-            // do stuff with p
         }
 
         spin_server(&server);

@@ -27,6 +27,8 @@ void ring_put(ring_buffer_t *buffer, const void *data);
 
 void* ring_get(ring_buffer_t *buffer);
 
+void* ring_peak(ring_buffer_t *buffer);
+
 unsigned char* to_contiguous_buffer(const ring_buffer_t *buffer);
 
 #endif // SPROCKETS_RING_BUFFER_H

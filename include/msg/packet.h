@@ -33,6 +33,8 @@ packet_t;
 
 void print_packet(const packet_t *m);
 
+packet_t new_packet();
+
 void serialize_packet(const packet_t *m, uint8_t *dst);
 
 int deserialize_packet(packet_t *dst, const uint8_t *buffer, size_t len);

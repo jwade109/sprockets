@@ -18,6 +18,13 @@ void print_vec3(const vec3_t *m)
     printf("\n");
 }
 
+vec3_t new_vec3()
+{
+    vec3_t ret;
+    memset(&ret, 0, sizeof(ret));
+    return ret;
+}
+
 void serialize_vec3(const vec3_t *m, uint8_t *dst)
 {
     memcpy(dst, m, sizeof(vec3_t));

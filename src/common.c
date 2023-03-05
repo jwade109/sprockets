@@ -273,6 +273,41 @@ int cast_buffer_to_packet(packet_t *p, const char *buffer, size_t len)
     return 1;
 }
 
+int pop_packet_if_exists(ring_buffer_t *buffer, packet_t *packet)
+{
+    if (!buffer->size)
+    {
+        return -1; // empty buffers contain no packets
+    }
+
+    while (buffer->size > 1 && *(uint16_t*) ring_peak(buffer) != PACKET_PREAMBLE)
+    {
+        ring_get(buffer);
+    }
+    // ok so the first two bytes are sync bytes, yay.
+    // if there's enough stuff, pop the whole thing off and return
+    // the packet
+
+    if (buffer->size < sizeof(packet_t))
+    {
+        return -2;
+    }
+
+    // possibly merge this with to_contiguous_buffer.
+    char contig_buf[sizeof(packet_t)];
+    for (size_t i = 0; i < sizeof(packet_t); ++i)
+    {
+        contig_buf[i] = *(char *) ring_get(buffer);
+    }
+
+    if (cast_buffer_to_packet(packet, contig_buf, sizeof(packet_t)) != 1)
+    {
+        return -3;
+    }
+
+    return 0;
+}
+
 int spin_conn(node_conn_t *conn)
 {
     if (!conn->is_connected)
@@ -294,21 +329,13 @@ int spin_conn(node_conn_t *conn)
         }
     }
 
-    // todo read packets from read_buffer
-    // while (conn->read_buffer.size >= sizeof(packet_t))
-    // {
-    //     // possibly merge this with to_contiguous_buffer.
-    //     char contig_buf[sizeof(packet_t)];
-    //     for (size_t i = 0; i < sizeof(packet_t); ++i)
-    //     {
-    //         contig_buf[i] = *(char *) ring_get(&conn->read_buffer);
-    //     }
-    //     packet_t packet;
-    //     if (cast_buffer_to_packet(&packet, contig_buf, sizeof(packet_t)) == 1)
-    //     {
-    //         ring_put(&conn->inbox, &packet);
-    //     }
-    // }
+    const int AUTOPOPULATE_PACKETS_INTO_INBOX = 1;
+
+    packet_t packet;
+    while (pop_packet_if_exists(&conn->read_buffer, &packet) >= 0)
+    {
+        ring_put(&conn->inbox, &packet);
+    }
 
     while (conn->outbox.size)
     {

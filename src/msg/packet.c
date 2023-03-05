@@ -28,6 +28,13 @@ void print_packet(const packet_t *m)
     printf("\n");
 }
 
+packet_t new_packet()
+{
+    packet_t ret;
+    memset(&ret, 0, sizeof(ret));
+    return ret;
+}
+
 void serialize_packet(const packet_t *m, uint8_t *dst)
 {
     memcpy(dst, m, sizeof(packet_t));

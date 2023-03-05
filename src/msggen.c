@@ -152,6 +152,8 @@ void emit_header(FILE *out, const char *source_msg_file,
 
     fprintf(out, "\nvoid print_%s(const %s_t *m);\n",
         message_type_name, message_type_name);
+    fprintf(out, "\n%s_t new_%s();\n",
+        message_type_name, message_type_name);
     fprintf(out, "\nvoid serialize_%s(const %s_t *m, uint8_t *dst);\n",
         message_type_name, message_type_name);
     fprintf(out, "\nint deserialize_%s(%s_t *dst, const uint8_t *buffer, size_t len);\n\n",
@@ -196,6 +198,13 @@ void emit_source(FILE *out, const char *source_msg_file,
     }
 
     fprintf(out, "    printf(\"\\n\");\n}\n");
+
+    fprintf(out, "\n%s_t new_%s()\n{\n",
+        message_type_name, message_type_name);
+    fprintf(out, "    %s_t ret;\n", message_type_name);
+    fprintf(out, "    memset(&ret, 0, sizeof(ret));\n");
+    fprintf(out, "    return ret;\n");
+    fprintf(out, "}\n");
 
     fprintf(out, "\nvoid serialize_%s(const %s_t *m, uint8_t *dst)\n{\n",
         message_type_name, message_type_name);

@@ -21,6 +21,8 @@ timestamp_t;
 
 void print_timestamp(const timestamp_t *m);
 
+timestamp_t new_timestamp();
+
 void serialize_timestamp(const timestamp_t *m, uint8_t *dst);
 
 int deserialize_timestamp(timestamp_t *dst, const uint8_t *buffer, size_t len);

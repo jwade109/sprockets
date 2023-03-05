@@ -89,6 +89,15 @@ void* ring_get(ring_buffer_t *buffer)
     return ret;
 }
 
+void* ring_peak(ring_buffer_t *buffer)
+{
+    if (!buffer->size)
+    {
+        return 0;
+    }
+    return buffer->data + buffer->rptr * buffer->elem_size;
+}
+
 unsigned char* to_contiguous_buffer(const ring_buffer_t *buffer)
 {
     if (!buffer->size)

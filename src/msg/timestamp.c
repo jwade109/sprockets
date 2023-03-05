@@ -16,6 +16,13 @@ void print_timestamp(const timestamp_t *m)
     printf("\n");
 }
 
+timestamp_t new_timestamp()
+{
+    timestamp_t ret;
+    memset(&ret, 0, sizeof(ret));
+    return ret;
+}
+
 void serialize_timestamp(const timestamp_t *m, uint8_t *dst)
 {
     memcpy(dst, m, sizeof(timestamp_t));
