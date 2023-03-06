@@ -222,6 +222,11 @@ int main(int argc, char **argv)
                     printf("D%zu ", i);
                 }
                 print_conn(nc);
+                packet_t *p;
+                while ((p = ring_get(&nc->inbox)))
+                {
+                    print_packet(p);
+                }
             }
         }
 
