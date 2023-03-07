@@ -28,4 +28,6 @@ datetime current_time();
 
 char* strdt(const datetime *t);
 
+void print_rate_stats(const rate_limit *rate);
+
 #endif // SPROCKETS_DATETIME_H

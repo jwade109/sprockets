@@ -26,24 +26,44 @@ uint8_t array_sum(const char *array, size_t len)
     return sum;
 }
 
-uint32_t packet_serial_no = 0;
-
 void print_packet(const packet_t *p)
 {
-    printf("packet %d %u.%06u type=%d datalen=%d data=%p:\n",
-        p->preamble, p->secs, p->usecs, p->datatype, p->datalen, p->data);
-    if (p->data)
-    {
-        print_hexdump(p->data, p->datalen);
-    }
+    printf("%u.%06u #%d type=%d chk=%02x len=%d d=%p\n",
+        p->secs, p->usecs, p->sno,
+        p->datatype, p->checksum, p->datalen, p->data);
+    // if (p->data)
+    // {
+    //     print_hexdump(p->data, p->datalen);
+    // }
 }
 
-packet_t get_empty_packet()
+packet_t get_empty_packet(size_t sno)
 {
     packet_t ret;
     memset(&ret, 0, sizeof(ret));
     ret.preamble = PACKET_PREAMBLE;
+    ret.sno = sno;
     return ret;
+}
+
+uint8_t compute_checksum(const packet_t *p)
+{
+    uint8_t sum = 0;
+    const uint8_t *data = (const uint8_t*) p;
+    for (size_t i = 0; i < PACKET_HEADER_SIZE; ++i)
+    {
+        sum += data[i];
+    }
+    for (size_t i = 0; i < p->datalen; ++i)
+    {
+        sum += p->data[i];
+    }
+    return sum;
+}
+
+void set_checksum(packet_t *p)
+{
+    p->checksum = 256 - compute_checksum(p);
 }
 
 void print_hexdump(const uint8_t *seq, size_t len)
@@ -257,6 +277,14 @@ int cast_buffer_to_packet(packet_t *p, const uint8_t *buffer, size_t len)
     allocated += p->datalen;
     memcpy(p->data, buffer + PACKET_HEADER_SIZE, p->datalen);
 
+    uint8_t checksum = compute_checksum(p);
+
+    if (checksum)
+    {
+        printf("Nonzero checksum %d\n", checksum);
+        // return -3;
+    }
+
     return 1;
 }
 
@@ -359,9 +387,10 @@ void init_conn(node_conn_t *conn)
 {
     conn->socket_fd = 0;
     conn->is_connected = 0;
-    init_buffer(&conn->read_buffer, sizeof(unsigned char), 500);
-    init_buffer(&conn->write_buffer, sizeof(unsigned char), 500);
-    init_buffer(&conn->inbox, sizeof(packet_t), 100);
+    conn->packet_counter = 0;
+    init_buffer(&conn->read_buffer,  sizeof(unsigned char), 3000);
+    init_buffer(&conn->write_buffer, sizeof(unsigned char), 3000);
+    init_buffer(&conn->inbox,  sizeof(packet_t), 100);
     init_buffer(&conn->outbox, sizeof(packet_t), 100);
 }
 
@@ -369,6 +398,7 @@ void free_conn(node_conn_t *conn)
 {
     conn->socket_fd = 0;
     conn->is_connected = 0;
+    conn->packet_counter = 0;
     free_buffer(&conn->read_buffer);
     free_buffer(&conn->write_buffer);
 

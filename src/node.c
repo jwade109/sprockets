@@ -47,7 +47,7 @@ void send_test_packet(node_conn_t *conn)
         strftime(buffer, len, "%A, %B %d %FT%TZ", info);
     }
 
-    packet_t out = get_empty_packet();
+    packet_t out = get_empty_packet(conn->packet_counter++);
     out.data = malloc(strlen(buffer));
     memcpy(out.data, buffer, strlen(buffer));
     out.datalen = strlen(buffer);
@@ -67,12 +67,13 @@ void send_random_bytes(node_conn_t *conn)
         buffer[i] = rand() % 256;
     }
 
-    packet_t out = get_empty_packet();
+    packet_t out = get_empty_packet(conn->packet_counter++);
     out.data = buffer;
     out.datalen = len;
     datetime now = current_time();
     out.secs = now.tv_sec;
     out.usecs = now.tv_usec;
+    set_checksum(&out);
 
     ring_put(&conn->outbox, &out);
 }
@@ -178,10 +179,9 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    rate_limit send_test_messages, ten_hertz, hundred_hertz;
-    init_rate_limit(&send_test_messages, 100);
-    init_rate_limit(&ten_hertz, 10);
-    init_rate_limit(&hundred_hertz, 100);
+    rate_limit send_test_messages, update_loop;
+    init_rate_limit(&send_test_messages, 20);
+    init_rate_limit(&update_loop, 100);
 
     node_conn_t** conns = get_all_connections(&upstream, &server);
 
@@ -198,12 +198,12 @@ int main(int argc, char **argv)
                 {
                     continue;
                 }
-                send_test_packet(nc);
+                // send_test_packet(nc);
                 send_random_bytes(nc);
             }
         }
 
-        if (poll_rate(&ten_hertz, &now))
+        if (poll_rate(&update_loop, &now))
         {
             for (size_t i = 0; i < max_clients + 1; ++i)
             {
@@ -212,26 +212,17 @@ int main(int argc, char **argv)
                 {
                     continue;
                 }
-                // if (i == 0)
-                // {
-                //     printf("U  ");
-                // }
-                // else
-                // {
-                //     printf("D%zu ", i);
-                // }
-                // print_conn(nc);
+
                 packet_t *p;
                 while ((p = ring_get(&nc->inbox)))
                 {
+                    // printf("%s: ", get_peer_str(get_peer_name(nc->socket_fd)));
+                    printf("R: ");
                     print_packet(p);
                     free(p->data);
                 }
             }
-        }
 
-        if (poll_rate(&hundred_hertz, &now))
-        {
             if (spin_conn(&upstream) < 0)
             {
                 perror("upstream disconnected");
@@ -240,6 +231,8 @@ int main(int argc, char **argv)
 
             spin_server(&server);
         }
+
+        usleep(2000); // 2 ms
     }
 
     free(conns);

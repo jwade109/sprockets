@@ -16,6 +16,7 @@
 typedef struct
 {
     uint32_t preamble;
+    uint32_t sno;
     uint32_t secs;
     uint32_t usecs;
     uint32_t datalen;
@@ -26,7 +27,7 @@ typedef struct
 packet_t;
 #pragma pack(pop)
 
-#define PACKET_HEADER_SIZE (21)
+#define PACKET_HEADER_SIZE (25)
 
 // assert packet size is assumed header size plus data pointer
 static_assert(sizeof(packet_t) == PACKET_HEADER_SIZE + sizeof(uint8_t*),
@@ -36,7 +37,11 @@ uint8_t array_sum(const char *array, size_t len);
 
 void print_packet(const packet_t *p);
 
-packet_t get_empty_packet();
+packet_t get_empty_packet(size_t sno);
+
+uint8_t compute_checksum(const packet_t *p);
+
+void set_checksum(packet_t *p);
 
 void print_hexdump(const uint8_t *seq, size_t len);
 
@@ -66,6 +71,7 @@ typedef struct
 {
     int socket_fd;
     int is_connected;
+    size_t packet_counter;
     ring_buffer_t read_buffer;
     ring_buffer_t write_buffer;
     ring_buffer_t inbox;

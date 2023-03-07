@@ -54,6 +54,8 @@ int poll_rate(rate_limit *rate, const datetime *now)
         rate->first = *now;
     }
 
+    ++rate->hit_count;
+
     // fire!
     rate->next.tv_sec += rate->delta.tv_sec;
     rate->next.tv_usec += rate->delta.tv_usec;
@@ -87,4 +89,12 @@ char* strdt(const datetime *t)
     static char buffer[300];
     sprintf(buffer, "%ld.%06ld", t->tv_sec, t->tv_usec);
     return buffer;
+}
+
+void print_rate_stats(const rate_limit *rate)
+{
+    printf("f=%lu.%06lu n=%lu.%06lu h=%u\n",
+        rate->first.tv_sec, rate->first.tv_usec,
+        rate->next.tv_sec, rate->next.tv_usec,
+        rate->hit_count);
 }
