@@ -10,21 +10,6 @@
 #include <common.h>
 #include <datetime.h>
 
-void user_got_a_packet(const packet_t *p)
-{
-    datetime tp;
-    tp.tv_sec = p->secs;
-    tp.tv_usec = p->usecs;
-
-    datetime now = current_time();
-    datetime delta_time = get_timedelta(&tp, &now);
-    int32_t dt = to_usecs(&delta_time);
-
-    printf("[RECV] ");
-    print_packet(p);
-    printf(" [%d us]\n", dt);
-}
-
 int connect_to_upstream(node_conn_t *conn, const char *ipaddr, int port)
 {
     conn->socket_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -50,13 +35,6 @@ int connect_to_upstream(node_conn_t *conn, const char *ipaddr, int port)
     return 0;
 }
 
-void print_ring_dump(const ring_buffer_t *buffer)
-{
-    unsigned char *contig = to_contiguous_buffer(buffer);
-    print_hexdump(contig, buffer->size);
-    free(contig);
-}
-
 void send_test_packet(node_conn_t *conn)
 {
     const int len = 200;
@@ -69,25 +47,34 @@ void send_test_packet(node_conn_t *conn)
         strftime(buffer, len, "%A, %B %d %FT%TZ", info);
     }
 
-    packet_t out = get_stamped_packet(buffer);
+    packet_t out = get_empty_packet();
+    out.data = malloc(strlen(buffer));
+    memcpy(out.data, buffer, strlen(buffer));
+    out.datalen = strlen(buffer);
+    datetime now = current_time();
+    out.secs = now.tv_sec;
+    out.usecs = now.tv_usec;
+
     ring_put(&conn->outbox, &out);
-    // print_hexdump((unsigned char*) &out, sizeof(packet_t));
 }
 
-void send_random_ascii_bytes(node_conn_t *conn)
+void send_random_bytes(node_conn_t *conn)
 {
-    const unsigned char start = ' ';
-    const unsigned char end = '~' + 1;
-
-    if (1.0 * rand() / RAND_MAX < 0.05)
+    size_t len = rand() % 300 + 12;
+    uint8_t *buffer = malloc(len);
+    for (size_t i = 0; i < len; ++i)
     {
-        size_t len = rand() % 300 + 12;
-        for (size_t i = 0; i < len; ++i)
-        {
-            unsigned char c = rand() % (end - start) + start;
-            ring_put(&conn->write_buffer, &c);
-        }
+        buffer[i] = rand() % 256;
     }
+
+    packet_t out = get_empty_packet();
+    out.data = buffer;
+    out.datalen = len;
+    datetime now = current_time();
+    out.secs = now.tv_sec;
+    out.usecs = now.tv_usec;
+
+    ring_put(&conn->outbox, &out);
 }
 
 void send_plaintext_date(node_conn_t *conn)
@@ -131,6 +118,14 @@ void print_help_info(const char *argv0)
     printf("usage: %s [addrup] [portup] [portdown]\n", argv0);
 }
 
+int program_exit = 0;
+
+void sighandler(int signal)
+{
+    printf("Signal: %d\n", signal);
+    program_exit = 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 4)
@@ -148,6 +143,8 @@ int main(int argc, char **argv)
     }
 
     srand(time(0));
+    signal(SIGINT, sighandler);
+    // signal(SIGPIPE, sighandler);
 
     const char *addrup = argv[1];
     const int portup = atoi(argv[2]);
@@ -161,11 +158,12 @@ int main(int argc, char **argv)
         if (connect_to_upstream(&upstream, addrup, portup) < 0)
         {
             perror("failed to connect to upstream");
+            free_conn(&upstream);
             return 1;
         }
     }
 
-    const size_t max_clients = 10;
+    const size_t max_clients = 3;
 
     server_t server;
     if (init_server(&server, max_clients) < 0)
@@ -180,18 +178,18 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    rate_limit one_hertz, ten_hertz, hundred_hertz;
-    init_rate_limit(&one_hertz, 1);
+    rate_limit send_test_messages, ten_hertz, hundred_hertz;
+    init_rate_limit(&send_test_messages, 100);
     init_rate_limit(&ten_hertz, 10);
     init_rate_limit(&hundred_hertz, 100);
 
     node_conn_t** conns = get_all_connections(&upstream, &server);
 
-    while (1)
+    while (!program_exit)
     {
         datetime now = current_time();
 
-        if (poll_rate(&one_hertz, &now))
+        if (poll_rate(&send_test_messages, &now))
         {
             for (size_t i = 0; i < max_clients + 1; ++i)
             {
@@ -201,6 +199,7 @@ int main(int argc, char **argv)
                     continue;
                 }
                 send_test_packet(nc);
+                send_random_bytes(nc);
             }
         }
 
@@ -213,19 +212,20 @@ int main(int argc, char **argv)
                 {
                     continue;
                 }
-                if (i == 0)
-                {
-                    printf("U  ");
-                }
-                else
-                {
-                    printf("D%zu ", i);
-                }
-                print_conn(nc);
+                // if (i == 0)
+                // {
+                //     printf("U  ");
+                // }
+                // else
+                // {
+                //     printf("D%zu ", i);
+                // }
+                // print_conn(nc);
                 packet_t *p;
                 while ((p = ring_get(&nc->inbox)))
                 {
                     print_packet(p);
+                    free(p->data);
                 }
             }
         }
@@ -235,12 +235,16 @@ int main(int argc, char **argv)
             if (spin_conn(&upstream) < 0)
             {
                 perror("upstream disconnected");
-                return 1;
+                break;
             }
 
             spin_server(&server);
         }
     }
+
+    free(conns);
+    free_server(&server);
+    free_conn(&upstream);
 
     printf("Done.\n");
 

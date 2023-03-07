@@ -8,7 +8,7 @@ LIB_COMPILATION_UNITS=common ring_buffer dynamic_array datetime
 LIB_OBJECTS=$(addsuffix .o, $(addprefix build/, ${LIB_COMPILATION_UNITS}))
 LIB_HEADERS=include/common.h include/ring_buffer.h
 
-MESSAGES=packet timestamp vec3
+MESSAGES=timestamp vec3
 MSG_OBJECTS=$(addsuffix .o, $(addprefix build/msg/,   ${MESSAGES}))
 MSG_HEADERS=$(addsuffix .h, $(addprefix include/msg/, ${MESSAGES}))
 
@@ -31,7 +31,7 @@ node: ${MSG_OBJECTS} ${LIB_OBJECTS} build/node.o
 	gcc ${LIB_OBJECTS} ${MSG_OBJECTS} build/node.o -o node
 
 msggen: src/dynamic_array.c src/msggen.c include/dynamic_array.h
-	gcc src/dynamic_array.c src/msggen.c -I include/ -o msggen
+	gcc ${C_FLAGS} src/dynamic_array.c src/msggen.c -I include/ -o msggen
 
 clean:
 	rm -rf build/ node msggen include/msg/ src/msg/

@@ -6,7 +6,6 @@
 #include <netinet/in.h>
 
 #include <ring_buffer.h>
-#include <msg/packet.h>
 #include <msg/timestamp.h>
 #include <msg/vec3.h>
 
@@ -17,22 +16,31 @@
 typedef struct
 {
     uint32_t preamble;
+    uint32_t secs;
+    uint32_t usecs;
     uint32_t datalen;
     uint32_t datatype;
     uint8_t checksum;
+    uint8_t *data;
 }
-packet_header_t;
+packet_t;
 #pragma pack(pop)
+
+#define PACKET_HEADER_SIZE (21)
+
+// assert packet size is assumed header size plus data pointer
+static_assert(sizeof(packet_t) == PACKET_HEADER_SIZE + sizeof(uint8_t*),
+    "packet_t size assertion failed");
 
 uint8_t array_sum(const char *array, size_t len);
 
-packet_t get_stamped_packet(char *msg);
+void print_packet(const packet_t *p);
 
-void print_hexdump(unsigned char *seq, size_t len);
+packet_t get_empty_packet();
+
+void print_hexdump(const uint8_t *seq, size_t len);
 
 int set_socket_reusable(int fsock);
-
-void set_socket_timeout(int fsock, int sec, int usec);
 
 struct sockaddr_in get_sockaddr(const char *ipaddr, int port);
 
@@ -47,8 +55,6 @@ int send_message(int fsock, const char *msg, int len);
 int send_string(int socket, const char *msg);
 
 int read_message(int fsock, char *buffer, int len);
-
-int send_packet(int fsock, const packet_t *packet);
 
 int connect_to_server(int fsock, const char *ip_addr_str, int port, int max_retries);
 
@@ -70,7 +76,7 @@ node_conn_t;
 // returns 0 on not enough data
 // returns < 0 for various error codes
 // returns 1 if packet is successfully casted
-int cast_buffer_to_packet(packet_t *p, const char *buffer, size_t len);
+int cast_buffer_to_packet(packet_t *p, const uint8_t *buffer, size_t len);
 
 int spin_conn(node_conn_t *conn);
 

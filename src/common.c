@@ -28,27 +28,25 @@ uint8_t array_sum(const char *array, size_t len)
 
 uint32_t packet_serial_no = 0;
 
-packet_t get_stamped_packet(char *msg)
+void print_packet(const packet_t *p)
 {
-    struct timeval time;
-    gettimeofday(&time, NULL);
-    packet_t packet;
-    memset(&packet, 0, sizeof(packet_t));
-    packet.preamble = PACKET_PREAMBLE;
-    packet.sno = packet_serial_no++;
-    packet.secs = time.tv_sec;
-    packet.usecs = time.tv_usec;
-    packet.datatype = 0;
-    packet.datalen = 0;
-    if (msg)
+    printf("packet %d %u.%06u type=%d datalen=%d data=%p:\n",
+        p->preamble, p->secs, p->usecs, p->datatype, p->datalen, p->data);
+    if (p->data)
     {
-        memcpy(packet.data, msg, strlen(msg));
+        print_hexdump(p->data, p->datalen);
     }
-    packet.checksum = 256 - array_sum((const char *) &packet, sizeof(packet));
-    return packet;
 }
 
-void print_hexdump(unsigned char *seq, size_t len)
+packet_t get_empty_packet()
+{
+    packet_t ret;
+    memset(&ret, 0, sizeof(ret));
+    ret.preamble = PACKET_PREAMBLE;
+    return ret;
+}
+
+void print_hexdump(const uint8_t *seq, size_t len)
 {
     if (!len)
     {
@@ -101,14 +99,6 @@ int set_socket_reusable(int fsock)
     return setsockopt(fsock, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
 }
 
-void set_socket_timeout(int fsock, int sec, int usec)
-{
-    struct timeval to;
-    to.tv_sec = sec;
-    to.tv_usec = usec;
-    setsockopt(fsock, SOL_SOCKET, SO_RCVTIMEO, (const char*) &to, sizeof(to));
-}
-
 struct sockaddr_in get_sockaddr(const char *ipaddr, int port)
 {
     struct sockaddr_in addr;
@@ -150,7 +140,7 @@ int send_message(int fsock, const char *msg, int len)
         return 1;
     }
 
-    int sent = send(fsock, msg, len, 0);
+    int sent = send(fsock, msg, len, MSG_NOSIGNAL);
     if (sent < 0 || len != sent)
     {
         printf("Failed to send: %s\n", strerror(errno));
@@ -172,16 +162,6 @@ int read_message(int fsock, char *buffer, int len)
         printf("Failed to read: %s\n", strerror(errno));
     }
     return numread;
-}
-
-int send_packet(int fsock, const packet_t *packet)
-{
-    int ret = send_message(fsock, (char *) packet, sizeof(packet_t));
-    if (ret)
-    {
-        return ret;
-    }
-    return ret;
 }
 
 int connect_to_server(int fsock, const char *ip_addr_str, int port, int max_retries)
@@ -244,19 +224,20 @@ int buffered_read_msg(int fsock, ring_buffer_t *inbuf)
     return numread;
 }
 
+size_t allocated = 0;
+
 // returns 0 on not enough data
 // returns < 0 for various error codes
 // returns 1 if packet is successfully casted
-int cast_buffer_to_packet(packet_t *p, const char *buffer, size_t len)
+int cast_buffer_to_packet(packet_t *p, const uint8_t *buffer, size_t len)
 {
-    if (len < sizeof(packet_t))
+    if (len < PACKET_HEADER_SIZE)
     {
         return 0;
     }
 
-    uint8_t computed_checksum = array_sum(buffer, len);
-
-    *p = *((packet_t *) buffer);
+    // only populate the header; else we risk a buffer overrun
+    memcpy(p, buffer, PACKET_HEADER_SIZE);
 
     if (p->preamble != PACKET_PREAMBLE)
     {
@@ -264,11 +245,17 @@ int cast_buffer_to_packet(packet_t *p, const char *buffer, size_t len)
         //     PACKET_PREAMBLE, p->preamble);
         return -1;
     }
-    if (computed_checksum)
+
+    if (len - PACKET_HEADER_SIZE < p->datalen)
     {
-        // printf("Bad checksum; expected 0x00, got 0x%02X.\n", computed_checksum);
+        // printf("Not enough data; datalen is %u, %zu remaining.\n",
+        //     p->datalen, len - PACKET_HEADER_SIZE);
         return -2;
     }
+
+    p->data = malloc(p->datalen);
+    allocated += p->datalen;
+    memcpy(p->data, buffer + PACKET_HEADER_SIZE, p->datalen);
 
     return 1;
 }
@@ -280,29 +267,30 @@ int pop_packet_if_exists(ring_buffer_t *buffer, packet_t *packet)
         return -1; // empty buffers contain no packets
     }
 
-    while (buffer->size > 1 && *(uint16_t*) ring_peak(buffer) != PACKET_PREAMBLE)
+    while (1)
     {
-        ring_get(buffer);
-    }
-    // ok so the first two bytes are sync bytes, yay.
-    // if there's enough stuff, pop the whole thing off and return
-    // the packet
-
-    if (buffer->size < sizeof(packet_t))
-    {
-        return -2;
-    }
-
-    // possibly merge this with to_contiguous_buffer.
-    char contig_buf[sizeof(packet_t)];
-    for (size_t i = 0; i < sizeof(packet_t); ++i)
-    {
-        contig_buf[i] = *(char *) ring_get(buffer);
-    }
-
-    if (cast_buffer_to_packet(packet, contig_buf, sizeof(packet_t)) != 1)
-    {
-        return -3;
+        uint8_t* contig = to_contiguous_buffer(buffer);
+        int status = cast_buffer_to_packet(packet, contig, buffer->size);
+        free(contig);
+        if (status < 0)
+        {
+            // pop a single byte off the buffer and try again
+            ring_get(buffer);
+        }
+        else if (status == 0)
+        {
+            // not enough data in the buffer
+            return 0;
+        }
+        else if (status == 1)
+        {
+            // got a packet
+            for (size_t i = 0; i < PACKET_HEADER_SIZE + packet->datalen; ++i)
+            {
+                ring_get(buffer);
+            }
+            return 1;
+        }
     }
 
     return 0;
@@ -330,19 +318,26 @@ int spin_conn(node_conn_t *conn)
     }
 
     packet_t packet;
-    while (pop_packet_if_exists(&conn->read_buffer, &packet) >= 0)
+    while (pop_packet_if_exists(&conn->read_buffer, &packet) > 0)
     {
         ring_put(&conn->inbox, &packet);
     }
 
     while (conn->outbox.size)
     {
-        unsigned char *out = ring_get(&conn->outbox);
+        packet_t *out = ring_get(&conn->outbox);
 
-        for (size_t i = 0; i < sizeof(packet_t); ++i)
+        for (size_t i = 0; i < PACKET_HEADER_SIZE; ++i)
         {
-            ring_put(&conn->write_buffer, out + i);
+            ring_put(&conn->write_buffer, ((uint8_t*) out) + i);
         }
+
+        for (size_t i = 0; i < out->datalen; ++i)
+        {
+            ring_put(&conn->write_buffer, out->data + i);
+        }
+
+        free(out->data);
     }
 
     while (conn->write_buffer.size)
@@ -353,6 +348,7 @@ int spin_conn(node_conn_t *conn)
         {
             printf("Failed to send.\n");
             retcode = -1;
+            break;
         }
     }
 
