@@ -371,6 +371,17 @@ void free_conn(node_conn_t *conn)
     conn->is_connected = 0;
     free_buffer(&conn->read_buffer);
     free_buffer(&conn->write_buffer);
+
+    packet_t *p;
+    while ((p = ring_get(&conn->inbox)))
+    {
+        free(p->data);
+    }
+    while ((p = ring_get(&conn->outbox)))
+    {
+        free(p->data);
+    }
+
     free_buffer(&conn->inbox);
     free_buffer(&conn->outbox);
 }
@@ -402,6 +413,10 @@ int free_server(server_t *s)
     s->client_max = 0;
     s->client_count = 0;
     s->server_fd = 0;
+    for (size_t i = 0; i < s->client_max; ++i)
+    {
+        free_conn(s->clients + i);
+    }
     free(s->clients);
     return 0;
 }
