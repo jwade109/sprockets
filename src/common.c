@@ -559,3 +559,79 @@ int host_localhost_server(server_t *server, int port)
 
     return 0;
 }
+
+int connect_to_upstream(node_conn_t *conn, const char *ipaddr, int port)
+{
+    conn->socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (conn->socket_fd < 0)
+    {
+        printf("Failed to open socket: %s\n", strerror(errno));
+        return -1;
+    }
+    set_socket_reusable(conn->socket_fd);
+
+    printf("Connecting to server at %s:%d\n", ipaddr, port);
+
+    if (connect_to_server(conn->socket_fd, ipaddr, port, 0) < 0)
+    {
+        return -1;
+    }
+
+    conn->is_connected = 1;
+
+    printf("Connected to server %s\n",
+        get_peer_str(get_peer_name(conn->socket_fd)));
+
+    return 0;
+}
+
+int init_node(node_t *node, const char *addrup, int portup, int portdown, size_t max_clients)
+{
+    init_conn(&node->upstream);
+
+    if (addrup)
+    {
+        if (connect_to_upstream(&node->upstream, addrup, portup) < 0)
+        {
+            perror("failed to connect to upstream");
+            free_conn(&node->upstream);
+            return -1;
+        }
+    }
+
+    if (init_server(&node->server, max_clients) < 0)
+    {
+        perror("open server failed");
+        return -2;
+    }
+
+    if (host_localhost_server(&node->server, portdown) < 0)
+    {
+        perror("failed to init server");
+        return -3;
+    }
+
+    return 0;
+}
+
+void free_node(node_t *node)
+{
+    free_server(&node->server);
+    free_conn(&node->upstream);
+}
+
+int spin_node(node_t *node)
+{
+    int ret = 0;
+    if (spin_conn(&node->upstream) < 0)
+    {
+        perror("upstream disconnected");
+        ret = -1;
+    }
+    if (spin_server(&node->server) < 0)
+    {
+        perror("server spin error");
+        ret = -1;
+    }
+    return ret;
+}

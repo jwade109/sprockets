@@ -10,31 +10,6 @@
 #include <common.h>
 #include <datetime.h>
 
-int connect_to_upstream(node_conn_t *conn, const char *ipaddr, int port)
-{
-    conn->socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (conn->socket_fd < 0)
-    {
-        printf("Failed to open socket: %s\n", strerror(errno));
-        return -1;
-    }
-    set_socket_reusable(conn->socket_fd);
-
-    printf("Connecting to server at %s:%d\n", ipaddr, port);
-
-    if (connect_to_server(conn->socket_fd, ipaddr, port, 0) < 0)
-    {
-        return -1;
-    }
-
-    conn->is_connected = 1;
-
-    printf("Connected to server %s\n",
-        get_peer_str(get_peer_name(conn->socket_fd)));
-
-    return 0;
-}
-
 void send_test_packet(node_conn_t *conn)
 {
     const int len = 200;
@@ -140,45 +115,50 @@ int main(int argc, char **argv)
 
     srand(time(0));
     signal(SIGINT, sighandler);
-    // signal(SIGPIPE, sighandler);
 
-    const char *addrup = argc > 1 ? argv[1] : "-";
+    const char *addrup = argc > 1 ? argv[1] : 0;
     const int portup = argc > 2 ? atoi(argv[2]) : 0;
     const int portdown = argc > 3 ? atoi(argv[3]) : 4300;
 
-    node_conn_t upstream;
-    init_conn(&upstream);
-
-    if (strcmp(addrup, "-") != 0)
-    {
-        if (connect_to_upstream(&upstream, addrup, portup) < 0)
-        {
-            perror("failed to connect to upstream");
-            free_conn(&upstream);
-            return 1;
-        }
-    }
-
     const size_t max_clients = 3;
-
-    server_t server;
-    if (init_server(&server, max_clients) < 0)
+    node_t node;
+    if (init_node(&node, addrup, portup, portdown, max_clients))
     {
-        perror("open server failed");
-        return -1;
+        printf("Failed.\n");
+        return 1;
     }
 
-    if (host_localhost_server(&server, portdown) < 0)
-    {
-        perror("failed to init server");
-        return -1;
-    }
+    // node_conn_t upstream;
+    // init_conn(&upstream);
+
+    // if (strcmp(addrup, "-") != 0)
+    // {
+    //     if (connect_to_upstream(&upstream, addrup, portup) < 0)
+    //     {
+    //         perror("failed to connect to upstream");
+    //         free_conn(&upstream);
+    //         return 1;
+    //     }
+    // }
+
+    // server_t server;
+    // if (init_server(&server, max_clients) < 0)
+    // {
+    //     perror("open server failed");
+    //     return -1;
+    // }
+
+    // if (host_localhost_server(&server, portdown) < 0)
+    // {
+    //     perror("failed to init server");
+    //     return -1;
+    // }
 
     rate_limit send_test_messages, update_loop;
     init_rate_limit(&send_test_messages, 20);
     init_rate_limit(&update_loop, 100);
 
-    node_conn_t** conns = get_all_connections(&upstream, &server);
+    node_conn_t** conns = get_all_connections(&node.upstream, &node.server);
 
     while (!program_exit)
     {
@@ -218,21 +198,14 @@ int main(int argc, char **argv)
                 }
             }
 
-            if (spin_conn(&upstream) < 0)
-            {
-                perror("upstream disconnected");
-                break;
-            }
-
-            spin_server(&server);
+            spin_node(&node);
         }
 
         usleep(2000); // 2 ms
     }
 
     free(conns);
-    free_server(&server);
-    free_conn(&upstream);
+    free_node(&node);
 
     printf("Done.\n");
 

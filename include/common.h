@@ -110,4 +110,17 @@ int spin_server(server_t *server);
 
 int host_localhost_server(server_t *server, int port);
 
+typedef struct
+{
+    node_conn_t upstream;
+    server_t server;
+}
+node_t;
+
+int init_node(node_t *node, const char *addrup, int portup, int portdown, size_t max_clients);
+
+void free_node(node_t *node);
+
+int spin_node(node_t *node);
+
 #endif // SPROCKETS_COMMON_PROCS_H
