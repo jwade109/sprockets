@@ -129,11 +129,6 @@ void sighandler(int signal)
 
 int main(int argc, char **argv)
 {
-    if (argc < 4)
-    {
-        print_help_info(argv[0]);
-        return 1;
-    }
     for (int i = 1; i < argc; ++i)
     {
         if (strcmp(argv[i], "-h") == 0)
@@ -147,9 +142,9 @@ int main(int argc, char **argv)
     signal(SIGINT, sighandler);
     // signal(SIGPIPE, sighandler);
 
-    const char *addrup = argv[1];
-    const int portup = atoi(argv[2]);
-    const int portdown = atoi(argv[3]);
+    const char *addrup = argc > 1 ? argv[1] : "-";
+    const int portup = argc > 2 ? atoi(argv[2]) : 0;
+    const int portdown = argc > 3 ? atoi(argv[3]) : 4300;
 
     node_conn_t upstream;
     init_conn(&upstream);
